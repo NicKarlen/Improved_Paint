@@ -1,0 +1,11 @@
+I need a local tool for my notebook to organize and edit screenshots.
+Key features:
+
+Left sidebar with thumbnail previews as clickable tabs (like a tabbed Paint interface).
+Paste newly captured screenshots into tabs.
+Auto-add customizable colored border around images; save chosen color as default brand setting.
+Add clean step indicators (e.g., 1., 2., I., II., III.) on screenshots.
+Overlay/paste screenshots onto existing images in the editor (Paint-style).
+Export as .png or .jpeg.
+
+Leverage frontend best practices for intuitive UI. Prioritize speed; select the best-suited language.

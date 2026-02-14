@@ -1,0 +1,581 @@
+.app-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 6px;
+}
+
+.sidebar-header button {
+  flex: 1;
+  font-size: 12px;
+  padding: 5px 4px;
+}
+
+.tab-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tab-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.tab-item:hover {
+  background: var(--bg-surface);
+}
+
+.tab-item.active {
+  background: var(--bg-surface);
+  border-color: var(--accent);
+}
+
+.tab-thumb {
+  width: 100%;
+  height: 120px;
+  object-fit: contain;
+  border-radius: 3px;
+  background: var(--bg-deep);
+}
+
+.tab-info {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tab-name {
+  flex: 1;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+  min-width: 0;
+}
+
+.tab-name-input {
+  flex: 1;
+  font-size: 12px;
+  padding: 1px 4px;
+  min-width: 0;
+  background: var(--bg-deep);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  outline: none;
+}
+
+.tab-close {
+  opacity: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.tab-item:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.add-canvas-btn {
+  width: 100%;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.add-canvas-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--bg-surface);
+}
+
+.sidebar-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 24px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ── Toolbar ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.toolbar button.tool-active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.toolbar button svg {
+  vertical-align: -2px;
+}
+
+.toolbar .undo-redo-btn {
+  padding: 4px 6px;
+}
+
+.toolbar .undo-redo-btn:disabled {
+  opacity: 0.3;
+}
+
+.toolbar .checkbox-label {
+  cursor: pointer;
+  gap: 4px;
+}
+
+.toolbar .checkbox-label input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.toolbar label {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+}
+
+.toolbar input[type="number"] {
+  width: 48px;
+}
+
+/* ── Canvas ── */
+.canvas-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.canvas-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background:
+    repeating-conic-gradient(var(--bg-surface) 0% 25%, var(--bg-deep) 0% 50%)
+    50% / 20px 20px;
+}
+
+.canvas-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100%;
+  min-height: 100%;
+  width: fit-content;
+  height: fit-content;
+}
+
+.canvas-container canvas {
+  cursor: crosshair;
+  display: block;
+}
+
+.canvas-empty {
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.8;
+}
+
+.canvas-empty kbd {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+/* ── Canvas Text Input ── */
+.canvas-text-input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ── Overlay Actions ── */
+.overlay-actions {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  z-index: 10;
+}
+
+.overlay-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Canvas Status Bar ── */
+.canvas-status {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-dimensions {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px;
+}
+
+.zoom-controls button {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.zoom-controls .zoom-label {
+  width: auto;
+  min-width: 48px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Color Swatches (toolbar) ── */
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  transition: box-shadow 0.12s, border-color 0.12s;
+}
+
+.color-swatch:hover {
+  border-color: var(--text-muted);
+}
+
+.color-swatch.swatch-active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg-panel), 0 0 0 4px var(--text);
+}
+
+/* ── Config Sidebar (right) ── */
+.config-sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.config-section {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-section:last-child {
+  border-bottom: none;
+}
+
+.config-heading {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.config-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-color-row,
+.config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.config-row input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+}
+
+.config-color-row input[type="color"] {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+}
+
+.config-row-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.config-row-input input[type="number"] {
+  width: 48px;
+}
+
+.config-unit {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.config-row input[type="range"] {
+  flex: 1;
+  min-width: 60px;
+}
+
+.config-slider-value {
+  min-width: 24px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.config-watermark-preview {
+  width: 100%;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-deep);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+
+.config-wm-thumb {
+  max-width: 40px;
+  max-height: 40px;
+  object-fit: contain;
+}
+
+.config-wm-default {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.config-wm-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.config-wm-actions button {
+  flex: 1;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+/* ── Context Menu ── */
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  min-width: 140px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.context-menu button:hover {
+  background: var(--bg-surface);
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.context-menu-danger:hover {
+  background: var(--danger) !important;
+  color: #fff !important;
+}
+
+/* ── Export Dialog ── */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.dialog {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 320px;
+}
+
+.dialog h3 {
+  margin-bottom: 16px;
+  font-size: 15px;
+}
+
+.dialog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.dialog-row label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}

@@ -1,0 +1,29 @@
+{
+  "name": "improved-paint",
+  "version": "1.0.0",
+  "description": "Local screenshot editor with tabbed interface",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:main\"",
+    "dev:renderer": "vite",
+    "dev:main": "tsc -p tsconfig.main.json && electron .",
+    "build": "tsc -p tsconfig.main.json && vite build",
+    "test": "vitest run",
+    "lint": "tsc --noEmit && eslint src/"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.0",
+    "eslint": "^9.15.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}
