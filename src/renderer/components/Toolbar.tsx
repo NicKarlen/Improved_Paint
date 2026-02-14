@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAppState } from '../store/AppContext';
-import { compositeExport } from '../utils/canvas';
+import { compositeExport, detectTextRegions, generateId } from '../utils/canvas';
 import ExportDialog from './ExportDialog';
 
 export default function Toolbar() {
@@ -8,6 +8,8 @@ export default function Toolbar() {
   const [showExport, setShowExport] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [simplifying, setSimplifying] = useState(false);
+  const [simplifyStatus, setSimplifyStatus] = useState('');
 
   const hasActiveTab = state.activeTabId !== null;
   const isShapeTool = state.tool === 'rect' || state.tool === 'arrow';
@@ -27,6 +29,42 @@ export default function Toolbar() {
       await window.electronAPI.writeClipboardImage(dataURL);
     } finally {
       setCopying(false);
+    }
+  }
+
+  async function handleSimplify() {
+    if (!activeTab || !activeTab.imageDataURL) return;
+    setSimplifying(true);
+    setSimplifyStatus('Starting...');
+    try {
+      const regions = await detectTextRegions(activeTab.imageDataURL, setSimplifyStatus);
+      if (regions.length === 0) {
+        setSimplifyStatus('No text found');
+        setTimeout(() => setSimplifyStatus(''), 2000);
+        return;
+      }
+      const shapes = regions.map((r) => ({
+        id: generateId(),
+        type: 'rect' as const,
+        x1: r.x,
+        y1: r.y,
+        x2: r.x + r.w,
+        y2: r.y + r.h,
+        color: r.gray,
+        strokeWidth: 0,
+        filled: true,
+        rectMode: 'normal' as const,
+        arrowChevrons: false,
+      }));
+      dispatch({ type: 'ADD_SHAPES', tabId: activeTab.id, shapes });
+      dispatch({ type: 'SET_TOOL', tool: 'select' });
+    } catch (err) {
+      console.error('Simplify failed:', err);
+      setSimplifyStatus('Failed');
+      setTimeout(() => setSimplifyStatus(''), 3000);
+    } finally {
+      setSimplifying(false);
+      setSimplifyStatus('');
     }
   }
 
@@ -352,6 +390,26 @@ export default function Toolbar() {
           </div>
         </>
       )}
+
+      <div className="toolbar-divider" />
+
+      {/* Simplify — cover text with gray rects */}
+      <button
+        onClick={handleSimplify}
+        disabled={!activeTab?.imageDataURL || simplifying}
+        title="Simplify — cover text with gray rectangles"
+      >
+        {simplifying ? (simplifyStatus || 'Simplifying...') : simplifyStatus ? simplifyStatus : (
+          <>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" stroke="none" style={{ verticalAlign: -2 }}>
+              <rect x="1" y="1" width="12" height="2.5" rx="0.5" opacity="0.4" />
+              <rect x="1" y="5.25" width="9" height="2.5" rx="0.5" opacity="0.6" />
+              <rect x="1" y="9.5" width="11" height="2.5" rx="0.5" opacity="0.8" />
+            </svg>
+            {' '}Simplify
+          </>
+        )}
+      </button>
 
       <div style={{ flex: 1 }} />
 

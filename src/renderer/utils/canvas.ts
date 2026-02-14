@@ -1,3 +1,4 @@
+import Tesseract from 'tesseract.js';
 import { StepIndicator, Shape, TextAnnotation, Tab } from '../../shared/types';
 
 export function generateId(): string {
@@ -309,6 +310,9 @@ export function renderShape(ctx: CanvasRenderingContext2D, shape: Shape, scale: 
       ctx.strokeStyle = censorColor;
       ctx.fillRect(rx, ry, rw, rh);
       ctx.strokeRect(rx, ry, rw, rh);
+    } else if (shape.filled && sw < 0.5) {
+      // Solid opaque fill, no border (used by simplify rects)
+      ctx.fillRect(rx, ry, rw, rh);
     } else if (shape.filled) {
       // Filled rect with slight transparency + solid border
       ctx.globalAlpha = 0.18;
@@ -449,6 +453,130 @@ export function drawWatermark(
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(wm, x, y, w, h);
   ctx.restore();
+}
+
+// ── Simplify (text detection) ──
+
+const GRAY_BUCKETS = ['#d0d0d0', '#a8a8a8', '#808080', '#585858'] as const;
+
+function luminanceToGray(luminance: number): string {
+  // Higher luminance (lighter background) → lighter gray; darker bg → darker gray
+  if (luminance > 190) return GRAY_BUCKETS[0];
+  if (luminance > 127) return GRAY_BUCKETS[1];
+  if (luminance > 64) return GRAY_BUCKETS[2];
+  return GRAY_BUCKETS[3];
+}
+
+export async function detectTextRegions(
+  imageDataURL: string,
+  onProgress?: (msg: string) => void
+): Promise<Array<{ x: number; y: number; w: number; h: number; gray: string }>> {
+  // Load image onto offscreen canvas to sample pixel data
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error('Failed to load image'));
+    i.src = imageDataURL;
+  });
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(img, 0, 0);
+  const imgData = ctx.getImageData(0, 0, c.width, c.height);
+
+  // Run Tesseract OCR — create worker with progress logging
+  onProgress?.('Loading OCR engine...');
+  const worker = await Tesseract.createWorker('eng', undefined, {
+    logger: (m: { status: string; progress: number }) => {
+      if (m.status === 'recognizing text') {
+        onProgress?.(`Recognizing text... ${Math.round(m.progress * 100)}%`);
+      } else {
+        onProgress?.(m.status);
+      }
+    },
+  });
+  let page;
+  try {
+    const result = await worker.recognize(imageDataURL, {}, { blocks: true });
+    page = result.data;
+  } finally {
+    await worker.terminate();
+  }
+  const words: Array<{ bbox: { x0: number; y0: number; x1: number; y1: number }; confidence: number }> = [];
+  for (const block of page.blocks || []) {
+    for (const para of block.paragraphs) {
+      for (const line of para.lines) {
+        for (const word of line.words) {
+          words.push(word);
+        }
+      }
+    }
+  }
+  if (words.length === 0) return [];
+
+  // Merge words on the same line into wider rects
+  // Sort by top then left
+  const sorted = [...words]
+    .filter(w => w.confidence > 30)
+    .sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+
+  const merged: Array<{ x: number; y: number; w: number; h: number }> = [];
+  for (const word of sorted) {
+    const { x0, y0, x1, y1 } = word.bbox;
+    const last = merged[merged.length - 1];
+    // Merge if same approximate line (vertical overlap) and horizontal gap is small
+    if (last) {
+      const lastBottom = last.y + last.h;
+      const vOverlap = Math.min(lastBottom, y1) - Math.max(last.y, y0);
+      const lineHeight = Math.min(last.h, y1 - y0);
+      const hGap = x0 - (last.x + last.w);
+      if (vOverlap > lineHeight * 0.5 && hGap < lineHeight * 1.5) {
+        // Extend the last rect
+        const newX = Math.min(last.x, x0);
+        const newY = Math.min(last.y, y0);
+        last.w = Math.max(last.x + last.w, x1) - newX;
+        last.h = Math.max(lastBottom, y1) - newY;
+        last.x = newX;
+        last.y = newY;
+        continue;
+      }
+    }
+    merged.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
+
+  // Pad each rect so text is fully covered
+  const pad = 3;
+  for (const r of merged) {
+    r.x = Math.max(0, r.x - pad);
+    r.y = Math.max(0, r.y - pad);
+    r.w += pad * 2;
+    r.h += pad * 2;
+  }
+
+  // Sample background luminance around each rect and assign gray tone
+  return merged.map((r) => {
+    // Sample a thin margin around the rect
+    const margin = 4;
+    const sx = Math.max(0, r.x - margin);
+    const sy = Math.max(0, r.y - margin);
+    const ex = Math.min(c.width, r.x + r.w + margin);
+    const ey = Math.min(c.height, r.y + r.h + margin);
+
+    let totalLum = 0;
+    let count = 0;
+    // Sample top and bottom edges
+    for (let x = sx; x < ex; x += 2) {
+      for (const y of [sy, ey - 1]) {
+        if (y < 0 || y >= c.height) continue;
+        const idx = (y * c.width + x) * 4;
+        totalLum += imgData.data[idx] * 0.299 + imgData.data[idx + 1] * 0.587 + imgData.data[idx + 2] * 0.114;
+        count++;
+      }
+    }
+    const avgLum = count > 0 ? totalLum / count : 200;
+    return { ...r, gray: luminanceToGray(avgLum) };
+  });
 }
 
 export async function compositeExport(

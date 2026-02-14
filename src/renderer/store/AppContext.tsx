@@ -43,6 +43,7 @@ type Action =
   | { type: 'SET_STEP_STYLE'; style: 'decimal' | 'roman' }
   | { type: 'ADD_STEP_INDICATOR'; tabId: string; indicator: StepIndicator }
   | { type: 'ADD_SHAPE'; tabId: string; shape: Shape }
+  | { type: 'ADD_SHAPES'; tabId: string; shapes: Shape[] }
   | { type: 'ADD_TEXT_ANNOTATION'; tabId: string; annotation: TextAnnotation }
   | { type: 'UPDATE_TEXT_ANNOTATION'; tabId: string; id: string; changes: Partial<TextAnnotation> }
   | { type: 'UPDATE_SHAPE'; tabId: string; id: string; changes: Partial<Shape> }
@@ -159,6 +160,15 @@ function reducer(state: State, action: Action): State {
         ...state,
         history,
         shapes: { ...state.shapes, [action.tabId]: [...existing, action.shape] },
+      };
+    }
+    case 'ADD_SHAPES': {
+      const history = pushUndo(state, action.tabId);
+      const existing = state.shapes[action.tabId] || [];
+      return {
+        ...state,
+        history,
+        shapes: { ...state.shapes, [action.tabId]: [...existing, ...action.shapes] },
       };
     }
     case 'ADD_TEXT_ANNOTATION': {
