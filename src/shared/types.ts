@@ -46,6 +46,7 @@ export interface Shape {
 export interface AppSettings {
   borderColor: string;
   borderWidth: number;
+  borderEnabled: boolean;
   stepSize: number;
   shapeColor: string;
   shapeStrokeWidth: number;
@@ -57,13 +58,19 @@ export interface AppSettings {
   companyColors: [string, string, string];
   watermarkDataURL: string | null;
   watermarkSize: number;
+  watermarkEnabled: boolean;
   blurStrength: number;
   textFontSize: number;
+  canvasFrameEnabled: boolean;
+  canvasFrameWidth: number;
+  canvasFrameHeight: number;
+  canvasFrameBgColor: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   borderColor: '#0ea5e9',
   borderWidth: 4,
+  borderEnabled: true,
   stepSize: 28,
   shapeColor: '#ef4444',
   shapeStrokeWidth: 3,
@@ -75,6 +82,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   companyColors: ['#0ea5e9', '#ef4444', '#22c55e'],
   watermarkDataURL: null,
   watermarkSize: 24,
+  watermarkEnabled: true,
   blurStrength: 8,
   textFontSize: 16,
+  canvasFrameEnabled: false,
+  canvasFrameWidth: 1200,
+  canvasFrameHeight: 800,
+  canvasFrameBgColor: '#ffffff',
 };

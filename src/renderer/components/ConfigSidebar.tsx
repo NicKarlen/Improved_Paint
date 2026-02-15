@@ -55,7 +55,14 @@ export default function ConfigSidebar() {
       </div>
 
       <div className="config-section">
-        <h4 className="config-heading">Border</h4>
+        <label className="config-heading config-heading-toggle">
+          <input
+            type="checkbox"
+            checked={settings.borderEnabled}
+            onChange={(e) => setSettings({ borderEnabled: e.target.checked })}
+          />
+          Border
+        </label>
         <label className="config-row">
           <span>Color</span>
           <input
@@ -80,7 +87,63 @@ export default function ConfigSidebar() {
       </div>
 
       <div className="config-section">
-        <h4 className="config-heading">Watermark</h4>
+        <label className="config-heading config-heading-toggle">
+          <input
+            type="checkbox"
+            checked={settings.canvasFrameEnabled}
+            onChange={(e) => setSettings({ canvasFrameEnabled: e.target.checked })}
+          />
+          Canvas Frame
+        </label>
+        <label className="config-row">
+          <span>Width</span>
+          <div className="config-row-input">
+            <input
+              className="wide"
+              type="number"
+              min={100}
+              max={4000}
+              step={50}
+              value={settings.canvasFrameWidth}
+              onChange={(e) => setSettings({ canvasFrameWidth: Number(e.target.value) })}
+            />
+            <span className="config-unit">px</span>
+          </div>
+        </label>
+        <label className="config-row">
+          <span>Height</span>
+          <div className="config-row-input">
+            <input
+              className="wide"
+              type="number"
+              min={100}
+              max={4000}
+              step={50}
+              value={settings.canvasFrameHeight}
+              onChange={(e) => setSettings({ canvasFrameHeight: Number(e.target.value) })}
+            />
+            <span className="config-unit">px</span>
+          </div>
+        </label>
+        <label className="config-row">
+          <span>Background</span>
+          <input
+            type="color"
+            value={settings.canvasFrameBgColor}
+            onChange={(e) => setSettings({ canvasFrameBgColor: e.target.value })}
+          />
+        </label>
+      </div>
+
+      <div className="config-section">
+        <label className="config-heading config-heading-toggle">
+          <input
+            type="checkbox"
+            checked={settings.watermarkEnabled}
+            onChange={(e) => setSettings({ watermarkEnabled: e.target.checked })}
+          />
+          Watermark
+        </label>
         <div className="config-watermark-preview">
           {settings.watermarkDataURL ? (
             <img src={settings.watermarkDataURL} alt="watermark" className="config-wm-thumb" />

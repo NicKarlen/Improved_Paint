@@ -19,8 +19,8 @@ export default function ExportDialog({ onClose }: Props) {
     const indicators = state.stepIndicators[activeTab.id] || [];
     const shapes = state.shapes[activeTab.id] || [];
     const texts = state.textAnnotations[activeTab.id] || [];
-    const { borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize } = state.settings;
-    const finalDataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize, texts);
+    const { borderColor, borderWidth: rawBW, borderEnabled, stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled } = state.settings;
+    const finalDataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, borderEnabled ? rawBW : 0, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts);
 
     let exportURL = finalDataURL;
     if (format !== 'png') {

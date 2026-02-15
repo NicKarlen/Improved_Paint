@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../store/AppContext';
-import { generateId, nextTabName, compositeExport } from '../utils/canvas';
+import { generateId, nextTabName, compositeExport, maybeApplyCanvasFrame } from '../utils/canvas';
 
 interface ContextMenuState {
   tabId: string;
@@ -57,18 +57,20 @@ export default function Sidebar() {
   async function pasteFromClipboard() {
     const dataURL = await window.electronAPI.readClipboardImage();
     if (!dataURL) return;
+    const framed = await maybeApplyCanvasFrame(dataURL, state.settings);
     dispatch({
       type: 'ADD_TAB',
-      tab: { id: generateId(), name: nextTabName(state.tabs), imageDataURL: dataURL, thumbnail: '' },
+      tab: { id: generateId(), name: nextTabName(state.tabs), imageDataURL: framed, thumbnail: '' },
     });
   }
 
   async function openFile() {
     const result = await window.electronAPI.openFile();
     if (!result) return;
+    const framed = await maybeApplyCanvasFrame(result.dataURL, state.settings);
     dispatch({
       type: 'ADD_TAB',
-      tab: { id: generateId(), name: result.name, imageDataURL: result.dataURL, thumbnail: '' },
+      tab: { id: generateId(), name: result.name, imageDataURL: framed, thumbnail: '' },
     });
   }
 
@@ -99,10 +101,10 @@ export default function Sidebar() {
   async function handleExportSingle(tabId: string) {
     const tab = state.tabs.find(t => t.id === tabId);
     if (!tab || !tab.imageDataURL) return;
-    const { borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize, exportFormat, exportQuality } = state.settings;
+    const { borderColor, borderWidth: rawBW, borderEnabled, stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled, exportFormat, exportQuality } = state.settings;
     const indicators = state.stepIndicators[tab.id] || [];
     const shapes = state.shapes[tab.id] || [];
-    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize);
+    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, borderColor, borderEnabled ? rawBW : 0, stepSize, watermarkEnabled ? rawWM : null, watermarkSize);
 
     if (exportFormat !== 'png') {
       const img = new Image();

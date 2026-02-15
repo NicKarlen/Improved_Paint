@@ -5,7 +5,7 @@ import {
   generateId, nextTabName, formatStepLabel, renderStepIndicator,
   renderShape, renderBlurShape, distanceToShape, drawImageWithBorder,
   drawWatermark, loadWatermark, renderTextAnnotation, measureTextAnnotation,
-  createThumbnail, compositeExport,
+  createThumbnail, compositeExport, maybeApplyCanvasFrame,
 } from '../utils/canvas';
 
 interface FloatingOverlay {
@@ -66,7 +66,9 @@ export default function CanvasEditor() {
   const indicators = activeTab ? (state.stepIndicators[activeTab.id] || []) : [];
   const shapes = activeTab ? (state.shapes[activeTab.id] || []) : [];
   const textAnnotations = activeTab ? (state.textAnnotations[activeTab.id] || []) : [];
-  const { borderColor, borderWidth, stepSize, shapeColor, shapeStrokeWidth, shapeFilled, arrowChevrons, rectMode, watermarkDataURL, watermarkSize, blurStrength, textFontSize } = state.settings;
+  const { borderColor, borderWidth: rawBorderWidth, borderEnabled, stepSize, shapeColor, shapeStrokeWidth, shapeFilled, arrowChevrons, rectMode, watermarkDataURL: rawWatermarkDataURL, watermarkSize, watermarkEnabled, blurStrength, textFontSize } = state.settings;
+  const borderWidth = borderEnabled ? rawBorderWidth : 0;
+  const watermarkDataURL = watermarkEnabled ? rawWatermarkDataURL : null;
 
   useEffect(() => {
     setZoom(1);
@@ -874,8 +876,8 @@ export default function CanvasEditor() {
         const indicators = state.stepIndicators[activeTab.id] || [];
         const shapes = state.shapes[activeTab.id] || [];
         const texts = state.textAnnotations[activeTab.id] || [];
-        const { borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize } = state.settings;
-        const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize, texts);
+        const { borderColor, borderWidth: rawBW, borderEnabled: be, stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled: we } = state.settings;
+        const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, be ? rawBW : 0, stepSize, we ? rawWM : null, watermarkSize, texts);
         await window.electronAPI.writeClipboardImage(dataURL);
         return;
       }
@@ -884,16 +886,19 @@ export default function CanvasEditor() {
         const dataURL = await window.electronAPI.readClipboardImage();
         if (!dataURL) return;
         if (activeTab && activeTab.imageDataURL) {
+          // Overlay case — compositing onto existing image, no frame
           if (overlay) commitOverlay();
           const img = new Image();
           img.onload = () => setOverlay({ image: img, x: 0, y: 0 });
           img.src = dataURL;
         } else if (activeTab) {
-          dispatch({ type: 'UPDATE_TAB_IMAGE', id: activeTab.id, imageDataURL: dataURL, thumbnail: '' });
+          const framed = await maybeApplyCanvasFrame(dataURL, state.settings);
+          dispatch({ type: 'UPDATE_TAB_IMAGE', id: activeTab.id, imageDataURL: framed, thumbnail: '' });
         } else {
+          const framed = await maybeApplyCanvasFrame(dataURL, state.settings);
           dispatch({
             type: 'ADD_TAB',
-            tab: { id: generateId(), name: nextTabName(state.tabs), imageDataURL: dataURL, thumbnail: '' },
+            tab: { id: generateId(), name: nextTabName(state.tabs), imageDataURL: framed, thumbnail: '' },
           });
         }
       }

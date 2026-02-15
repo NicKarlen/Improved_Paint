@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../store/AppContext';
 import { compositeExport, detectTextRegions, generateId } from '../utils/canvas';
 import ExportDialog from './ExportDialog';
@@ -10,6 +10,21 @@ export default function Toolbar() {
   const [copying, setCopying] = useState(false);
   const [simplifying, setSimplifying] = useState(false);
   const [simplifyStatus, setSimplifyStatus] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => { document.removeEventListener('mousedown', handleClick); document.removeEventListener('keydown', handleKey); };
+  }, [menuOpen]);
 
   const hasActiveTab = state.activeTabId !== null;
   const isShapeTool = state.tool === 'rect' || state.tool === 'arrow';
@@ -24,8 +39,8 @@ export default function Toolbar() {
       const indicators = state.stepIndicators[activeTab.id] || [];
       const shapes = state.shapes[activeTab.id] || [];
       const texts = state.textAnnotations[activeTab.id] || [];
-      const { borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize } = state.settings;
-      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize, texts);
+      const { borderColor, borderWidth: rawBW, borderEnabled, stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled } = state.settings;
+      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, borderEnabled ? rawBW : 0, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts);
       await window.electronAPI.writeClipboardImage(dataURL);
     } finally {
       setCopying(false);
@@ -72,7 +87,9 @@ export default function Toolbar() {
     if (exportableTabs.length === 0) return;
     setExporting(true);
     try {
-      const { borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize, exportFormat, exportQuality } = state.settings;
+      const { borderColor, borderWidth: rawBW2, borderEnabled: be, stepSize, watermarkDataURL: rawWM2, watermarkSize, watermarkEnabled: we, exportFormat, exportQuality } = state.settings;
+      const borderWidth = be ? rawBW2 : 0;
+      const watermarkDataURL = we ? rawWM2 : null;
       const extMap = { png: 'png', jpeg: 'jpg', webp: 'webp' } as const;
       const ext = extMap[exportFormat];
 
@@ -108,342 +125,348 @@ export default function Toolbar() {
   const canUndo = !!hist && hist.undoStack.length > 0;
   const canRedo = !!hist && hist.redoStack.length > 0;
 
+  const hasOptions = state.tool === 'step' || state.tool === 'text' || isShapeTool || state.tool === 'blur' || simplifying || !!simplifyStatus;
+
   return (
-    <div className="toolbar">
-      {/* Undo / Redo */}
-      <div className="toolbar-group">
-        <button
-          onClick={() => tabId && dispatch({ type: 'UNDO', tabId })}
-          disabled={!canUndo}
-          title="Undo (Ctrl+Z)"
-          className="undo-redo-btn"
-        >
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 5.5h6.5a3.5 3.5 0 0 1 0 7H8" />
-            <path d="M5.5 3L3 5.5 5.5 8" />
-          </svg>
-        </button>
-        <button
-          onClick={() => tabId && dispatch({ type: 'REDO', tabId })}
-          disabled={!canRedo}
-          title="Redo (Ctrl+Shift+Z)"
-          className="undo-redo-btn"
-        >
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5.5H5.5a3.5 3.5 0 0 0 0 7H7" />
-            <path d="M9.5 3L12 5.5 9.5 8" />
-          </svg>
-        </button>
-      </div>
+    <div className="toolbar-outer">
+      <div className="toolbar">
+        {/* Undo / Redo */}
+        <div className="toolbar-group">
+          <button
+            onClick={() => tabId && dispatch({ type: 'UNDO', tabId })}
+            disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+            className="undo-redo-btn"
+          >
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 5.5h6.5a3.5 3.5 0 0 1 0 7H8" />
+              <path d="M5.5 3L3 5.5 5.5 8" />
+            </svg>
+          </button>
+          <button
+            onClick={() => tabId && dispatch({ type: 'REDO', tabId })}
+            disabled={!canRedo}
+            title="Redo (Ctrl+Shift+Z)"
+            className="undo-redo-btn"
+          >
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5.5H5.5a3.5 3.5 0 0 0 0 7H7" />
+              <path d="M9.5 3L12 5.5 9.5 8" />
+            </svg>
+          </button>
+        </div>
 
-      <div className="toolbar-divider" />
+        <div className="toolbar-divider" />
 
-      {/* Tool buttons */}
-      <div className="toolbar-group">
-        <button
-          className={state.tool === 'select' ? 'tool-active' : ''}
-          onClick={() => dispatch({ type: 'SET_TOOL', tool: 'select' })}
-          title="Select / Move (V)"
-        >
-          Select
-        </button>
-        <button
-          className={state.tool === 'step' ? 'tool-active' : ''}
-          onClick={() => dispatch({ type: 'SET_TOOL', tool: 'step' })}
-          disabled={!hasActiveTab}
-          title="Step Indicator"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.2" />
-            <circle cx="7" cy="7" r="6" />
-            <text x="7" y="7.5" textAnchor="middle" dominantBaseline="middle" fill="currentColor" stroke="none" fontSize="8" fontWeight="bold">1</text>
-          </svg>
-          {' '}Step
-        </button>
-        <button
-          className={state.tool === 'text' ? 'tool-active' : ''}
-          onClick={() => dispatch({ type: 'SET_TOOL', tool: 'text' })}
-          disabled={!hasActiveTab}
-          title="Text Annotation"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M3 3h8" />
-            <path d="M7 3v9" />
-            <path d="M5 12h4" />
-          </svg>
-          {' '}Text
-        </button>
-        <button
-          className={state.tool === 'rect' ? 'tool-active' : ''}
-          onClick={() => dispatch({ type: 'SET_TOOL', tool: 'rect' })}
-          disabled={!hasActiveTab}
-          title="Rectangle"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="1" y="2" width="12" height="10" rx="1.5" />
-          </svg>
-          {' '}Rect
-        </button>
-        <button
-          className={state.tool === 'arrow' ? 'tool-active' : ''}
-          onClick={() => dispatch({ type: 'SET_TOOL', tool: 'arrow' })}
-          disabled={!hasActiveTab}
-          title="Arrow"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" stroke="currentColor" strokeWidth="0.5">
-            <line x1="1" y1="13" x2="10" y2="4" strokeWidth="1.5" fill="none" />
-            <polygon points="13,1 6.5,3.5 10.5,7.5" />
-          </svg>
-          {' '}Arrow
-        </button>
-        <button
-          className={state.tool === 'blur' ? 'tool-active' : ''}
-          onClick={() => dispatch({ type: 'SET_TOOL', tool: 'blur' })}
-          disabled={!hasActiveTab}
-          title="Blur / Pixelate"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="1" y="1" width="5" height="5" fill="currentColor" opacity="0.3" />
-            <rect x="8" y="1" width="5" height="5" fill="currentColor" opacity="0.6" />
-            <rect x="1" y="8" width="5" height="5" fill="currentColor" opacity="0.6" />
-            <rect x="8" y="8" width="5" height="5" fill="currentColor" opacity="0.3" />
-          </svg>
-          {' '}Blur
-        </button>
-        <button
-          className={state.tool === 'crop' ? 'tool-active' : ''}
-          onClick={() => dispatch({ type: 'SET_TOOL', tool: 'crop' })}
-          disabled={!hasActiveTab}
-          title="Crop"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M3.5 0v10.5H14" />
-            <path d="M10.5 14V3.5H0" />
-          </svg>
-          {' '}Crop
-        </button>
-      </div>
-
-      {/* Step tool options */}
-      {state.tool === 'step' && (
-        <>
-          <div className="toolbar-divider" />
-          <div className="toolbar-group">
-            <label>Style:</label>
-            <select
-              value={state.stepStyle}
-              onChange={(e) => dispatch({ type: 'SET_STEP_STYLE', style: e.target.value as 'decimal' | 'roman' })}
+        {/* Tool buttons */}
+        <div className="toolbar-group">
+          <button
+            className={state.tool === 'select' ? 'tool-active' : ''}
+            onClick={() => dispatch({ type: 'SET_TOOL', tool: 'select' })}
+            title="Select / Move (V)"
+          >
+            Select
+          </button>
+          <button
+            className={state.tool === 'step' ? 'tool-active' : ''}
+            onClick={() => dispatch({ type: 'SET_TOOL', tool: 'step' })}
+            disabled={!hasActiveTab}
+            title="Step Indicator"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.2" />
+              <circle cx="7" cy="7" r="6" />
+              <text x="7" y="7.5" textAnchor="middle" dominantBaseline="middle" fill="currentColor" stroke="none" fontSize="8" fontWeight="bold">1</text>
+            </svg>
+            {' '}Step
+          </button>
+          <button
+            className={state.tool === 'text' ? 'tool-active' : ''}
+            onClick={() => dispatch({ type: 'SET_TOOL', tool: 'text' })}
+            disabled={!hasActiveTab}
+            title="Text Annotation"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M3 3h8" />
+              <path d="M7 3v9" />
+              <path d="M5 12h4" />
+            </svg>
+            {' '}Text
+          </button>
+          <button
+            className={state.tool === 'rect' ? 'tool-active' : ''}
+            onClick={() => dispatch({ type: 'SET_TOOL', tool: 'rect' })}
+            disabled={!hasActiveTab}
+            title="Rectangle"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="1" y="2" width="12" height="10" rx="1.5" />
+            </svg>
+            {' '}Rect
+          </button>
+          <button
+            className={state.tool === 'arrow' ? 'tool-active' : ''}
+            onClick={() => dispatch({ type: 'SET_TOOL', tool: 'arrow' })}
+            disabled={!hasActiveTab}
+            title="Arrow"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" stroke="currentColor" strokeWidth="0.5">
+              <line x1="1" y1="13" x2="10" y2="4" strokeWidth="1.5" fill="none" />
+              <polygon points="13,1 6.5,3.5 10.5,7.5" />
+            </svg>
+            {' '}Arrow
+          </button>
+          <button
+            className={state.tool === 'crop' ? 'tool-active' : ''}
+            onClick={() => dispatch({ type: 'SET_TOOL', tool: 'crop' })}
+            disabled={!hasActiveTab}
+            title="Crop"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M3.5 0v10.5H14" />
+              <path d="M10.5 14V3.5H0" />
+            </svg>
+            {' '}Crop
+          </button>
+          {/* More menu (Blur + Simplify) */}
+          <div className="toolbar-menu-wrapper" ref={menuRef}>
+            <button
+              className={state.tool === 'blur' ? 'tool-active' : ''}
+              onClick={() => setMenuOpen(o => !o)}
+              title="More tools"
             >
-              <option value="decimal">1. 2. 3.</option>
-              <option value="roman">I. II. III.</option>
-            </select>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <circle cx="7" cy="2.5" r="1.5" />
+                <circle cx="7" cy="7" r="1.5" />
+                <circle cx="7" cy="11.5" r="1.5" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div className="toolbar-menu">
+                <button
+                  onClick={() => { dispatch({ type: 'SET_TOOL', tool: 'blur' }); setMenuOpen(false); }}
+                  disabled={!hasActiveTab}
+                >
+                  Blur
+                </button>
+                <button
+                  onClick={() => { handleSimplify(); setMenuOpen(false); }}
+                  disabled={!activeTab?.imageDataURL || simplifying}
+                >
+                  Simplify
+                </button>
+              </div>
+            )}
           </div>
-          <div className="toolbar-group">
-            <label>
-              Size:
-              <input
-                type="range"
-                min={16}
-                max={80}
-                value={state.settings.stepSize}
-                onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { stepSize: Number(e.target.value) } })}
-              />
-              <span style={{ minWidth: 28, textAlign: 'right' }}>{state.settings.stepSize}</span>
-            </label>
-          </div>
-        </>
-      )}
+        </div>
 
-      {/* Text tool options */}
-      {state.tool === 'text' && (
-        <>
-          <div className="toolbar-divider" />
-          <div className="toolbar-group">
-            <label>
-              Color:
-              <input
-                type="color"
-                value={state.settings.shapeColor}
-                onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeColor: e.target.value } })}
-              />
-            </label>
-          </div>
-          <div className="toolbar-group">
-            <label>
-              Size:
-              <input
-                type="range"
-                min={10}
-                max={48}
-                value={state.settings.textFontSize}
-                onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { textFontSize: Number(e.target.value) } })}
-              />
-              <span style={{ minWidth: 28, textAlign: 'right' }}>{state.settings.textFontSize}</span>
-            </label>
-          </div>
-        </>
-      )}
+        <div style={{ flex: 1 }} />
 
-      {/* Shape tool options */}
-      {isShapeTool && (
-        <>
-          <div className="toolbar-divider" />
-          {state.tool === 'rect' && (
-            <div className="toolbar-group">
-              <label>Mode:</label>
-              <select
-                value={state.settings.rectMode}
-                onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { rectMode: e.target.value as 'normal' | 'blackout' | 'whiteout' } })}
-              >
-                <option value="normal">Normal</option>
-                <option value="blackout">Blackout</option>
-                <option value="whiteout">Whiteout</option>
-              </select>
-            </div>
+        {/* Copy to Clipboard */}
+        <button
+          onClick={handleCopyToClipboard}
+          disabled={!activeTab?.imageDataURL || copying}
+          title="Copy to clipboard (Ctrl+Shift+C)"
+        >
+          {copying ? 'Copied!' : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: -2 }}>
+                <rect x="4" y="4" width="9" height="9" rx="1.5" />
+                <path d="M10 4V2.5A1.5 1.5 0 0 0 8.5 1H2.5A1.5 1.5 0 0 0 1 2.5v6A1.5 1.5 0 0 0 2.5 10H4" />
+              </svg>
+              {' '}Copy
+            </>
           )}
-          {(state.tool === 'arrow' || (state.tool === 'rect' && state.settings.rectMode === 'normal')) && (
+        </button>
+
+        <button
+          className="primary"
+          onClick={() => setShowExport(true)}
+          disabled={!hasActiveTab}
+        >
+          Export
+        </button>
+        <button
+          onClick={handleExportAll}
+          disabled={exportableTabs.length === 0 || exporting}
+          title="Export all images to a folder"
+        >
+          {exporting ? 'Exporting...' : 'Export All'}
+        </button>
+      </div>
+
+      {/* Options bar — second row, only when a tool has settings */}
+      {hasOptions && (
+        <div className="toolbar-options">
+          {/* Step tool options */}
+          {state.tool === 'step' && (
+            <>
+              <div className="toolbar-group">
+                <label>Style:</label>
+                <select
+                  value={state.stepStyle}
+                  onChange={(e) => dispatch({ type: 'SET_STEP_STYLE', style: e.target.value as 'decimal' | 'roman' })}
+                >
+                  <option value="decimal">1. 2. 3.</option>
+                  <option value="roman">I. II. III.</option>
+                </select>
+              </div>
+              <div className="toolbar-group">
+                <label>
+                  Size:
+                  <input
+                    type="range"
+                    min={16}
+                    max={80}
+                    value={state.settings.stepSize}
+                    onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { stepSize: Number(e.target.value) } })}
+                  />
+                  <span style={{ minWidth: 28, textAlign: 'right' }}>{state.settings.stepSize}</span>
+                </label>
+              </div>
+            </>
+          )}
+
+          {/* Text tool options */}
+          {state.tool === 'text' && (
+            <>
+              <div className="toolbar-group">
+                <label>
+                  Color:
+                  <input
+                    type="color"
+                    value={state.settings.shapeColor}
+                    onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeColor: e.target.value } })}
+                  />
+                </label>
+              </div>
+              <div className="toolbar-group">
+                <label>
+                  Size:
+                  <input
+                    type="range"
+                    min={10}
+                    max={48}
+                    value={state.settings.textFontSize}
+                    onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { textFontSize: Number(e.target.value) } })}
+                  />
+                  <span style={{ minWidth: 28, textAlign: 'right' }}>{state.settings.textFontSize}</span>
+                </label>
+              </div>
+            </>
+          )}
+
+          {/* Shape tool options */}
+          {isShapeTool && (
+            <>
+              {state.tool === 'rect' && (
+                <div className="toolbar-group">
+                  <label>Mode:</label>
+                  <select
+                    value={state.settings.rectMode}
+                    onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { rectMode: e.target.value as 'normal' | 'blackout' | 'whiteout' } })}
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="blackout">Blackout</option>
+                    <option value="whiteout">Whiteout</option>
+                  </select>
+                </div>
+              )}
+              {(state.tool === 'arrow' || (state.tool === 'rect' && state.settings.rectMode === 'normal')) && (
+                <div className="toolbar-group">
+                  <label>
+                    Color:
+                    <input
+                      type="color"
+                      value={state.settings.shapeColor}
+                      onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeColor: e.target.value } })}
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="toolbar-group">
+                <label>
+                  Stroke:
+                  <input
+                    type="range"
+                    min={1}
+                    max={12}
+                    value={state.settings.shapeStrokeWidth}
+                    onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeStrokeWidth: Number(e.target.value) } })}
+                  />
+                  <span style={{ minWidth: 20, textAlign: 'right' }}>{state.settings.shapeStrokeWidth}</span>
+                </label>
+              </div>
+              {state.tool === 'rect' && state.settings.rectMode === 'normal' && (
+                <div className="toolbar-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={state.settings.shapeFilled}
+                      onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeFilled: e.target.checked } })}
+                    />
+                    Fill
+                  </label>
+                </div>
+              )}
+              {state.tool === 'arrow' && (
+                <div className="toolbar-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={state.settings.arrowChevrons}
+                      onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { arrowChevrons: e.target.checked } })}
+                    />
+                    Chevrons
+                  </label>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Blur tool options */}
+          {state.tool === 'blur' && (
             <div className="toolbar-group">
               <label>
-                Color:
+                Strength:
                 <input
-                  type="color"
-                  value={state.settings.shapeColor}
-                  onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeColor: e.target.value } })}
+                  type="range"
+                  min={2}
+                  max={20}
+                  value={state.settings.blurStrength}
+                  onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { blurStrength: Number(e.target.value) } })}
                 />
+                <span style={{ minWidth: 20, textAlign: 'right' }}>{state.settings.blurStrength}</span>
               </label>
             </div>
           )}
-          <div className="toolbar-group">
-            <label>
-              Stroke:
-              <input
-                type="range"
-                min={1}
-                max={12}
-                value={state.settings.shapeStrokeWidth}
-                onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeStrokeWidth: Number(e.target.value) } })}
-              />
-              <span style={{ minWidth: 20, textAlign: 'right' }}>{state.settings.shapeStrokeWidth}</span>
-            </label>
-          </div>
-          {state.tool === 'rect' && state.settings.rectMode === 'normal' && (
+
+          {/* Simplify status */}
+          {(simplifying || simplifyStatus) && (
             <div className="toolbar-group">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={state.settings.shapeFilled}
-                  onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { shapeFilled: e.target.checked } })}
-                />
-                Fill
-              </label>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{simplifyStatus || 'Simplifying...'}</span>
             </div>
           )}
-          {state.tool === 'arrow' && (
-            <div className="toolbar-group">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={state.settings.arrowChevrons}
-                  onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { arrowChevrons: e.target.checked } })}
-                />
-                Chevrons
-              </label>
-            </div>
+
+          {/* Brand color swatches */}
+          {(isShapeTool || state.tool === 'step' || state.tool === 'text') && (
+            <>
+              <div className="toolbar-divider" />
+              <div className="toolbar-group">
+                {state.settings.companyColors.map((color, i) => (
+                  <button
+                    key={i}
+                    className={`color-swatch${state.settings.shapeColor === color ? ' swatch-active' : ''}`}
+                    style={{ background: color }}
+                    onClick={() => dispatch({ type: 'SET_SETTINGS', settings: { shapeColor: color } })}
+                    title={`Brand color ${i + 1}`}
+                  />
+                ))}
+              </div>
+            </>
           )}
-        </>
+        </div>
       )}
-
-      {/* Blur tool options */}
-      {state.tool === 'blur' && (
-        <>
-          <div className="toolbar-divider" />
-          <div className="toolbar-group">
-            <label>
-              Strength:
-              <input
-                type="range"
-                min={2}
-                max={20}
-                value={state.settings.blurStrength}
-                onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { blurStrength: Number(e.target.value) } })}
-              />
-              <span style={{ minWidth: 20, textAlign: 'right' }}>{state.settings.blurStrength}</span>
-            </label>
-          </div>
-        </>
-      )}
-
-      {/* Brand color swatches */}
-      {(isShapeTool || state.tool === 'step' || state.tool === 'text') && (
-        <>
-          <div className="toolbar-divider" />
-          <div className="toolbar-group">
-            {state.settings.companyColors.map((color, i) => (
-              <button
-                key={i}
-                className={`color-swatch${state.settings.shapeColor === color ? ' swatch-active' : ''}`}
-                style={{ background: color }}
-                onClick={() => dispatch({ type: 'SET_SETTINGS', settings: { shapeColor: color } })}
-                title={`Brand color ${i + 1}`}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      <div className="toolbar-divider" />
-
-      {/* Simplify — cover text with gray rects */}
-      <button
-        onClick={handleSimplify}
-        disabled={!activeTab?.imageDataURL || simplifying}
-        title="Simplify — cover text with gray rectangles"
-      >
-        {simplifying ? (simplifyStatus || 'Simplifying...') : simplifyStatus ? simplifyStatus : (
-          <>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" stroke="none" style={{ verticalAlign: -2 }}>
-              <rect x="1" y="1" width="12" height="2.5" rx="0.5" opacity="0.4" />
-              <rect x="1" y="5.25" width="9" height="2.5" rx="0.5" opacity="0.6" />
-              <rect x="1" y="9.5" width="11" height="2.5" rx="0.5" opacity="0.8" />
-            </svg>
-            {' '}Simplify
-          </>
-        )}
-      </button>
-
-      <div style={{ flex: 1 }} />
-
-      {/* Copy to Clipboard */}
-      <button
-        onClick={handleCopyToClipboard}
-        disabled={!activeTab?.imageDataURL || copying}
-        title="Copy to clipboard (Ctrl+Shift+C)"
-      >
-        {copying ? 'Copied!' : (
-          <>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: -2 }}>
-              <rect x="4" y="4" width="9" height="9" rx="1.5" />
-              <path d="M10 4V2.5A1.5 1.5 0 0 0 8.5 1H2.5A1.5 1.5 0 0 0 1 2.5v6A1.5 1.5 0 0 0 2.5 10H4" />
-            </svg>
-            {' '}Copy
-          </>
-        )}
-      </button>
-
-      <button
-        className="primary"
-        onClick={() => setShowExport(true)}
-        disabled={!hasActiveTab}
-      >
-        Export
-      </button>
-      <button
-        onClick={handleExportAll}
-        disabled={exportableTabs.length === 0 || exporting}
-        title="Export all images to a folder"
-      >
-        {exporting ? 'Exporting...' : 'Export All'}
-      </button>
 
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
     </div>

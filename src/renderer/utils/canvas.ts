@@ -1,5 +1,5 @@
 import Tesseract from 'tesseract.js';
-import { StepIndicator, Shape, TextAnnotation, Tab } from '../../shared/types';
+import { StepIndicator, Shape, TextAnnotation, Tab, AppSettings } from '../../shared/types';
 
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -32,6 +32,41 @@ export function nextTabName(tabs: Tab[], fallback = 'Screenshot'): string {
 
   // No trailing number — append " 2" (first tab is implicitly "1")
   return `${first} ${tabs.length + 1}`;
+}
+
+export function fitToCanvasFrame(
+  dataURL: string, width: number, height: number, bgColor: string
+): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(width / img.width, height / img.height);
+      const sw = Math.round(img.width * scale);
+      const sh = Math.round(img.height * scale);
+      const ox = Math.round((width - sw) / 2);
+      const oy = Math.round((height - sh) / 2);
+      const c = document.createElement('canvas');
+      c.width = width;
+      c.height = height;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, width, height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, ox, oy, sw, sh);
+      resolve(c.toDataURL('image/png'));
+    };
+    img.src = dataURL;
+  });
+}
+
+export function maybeApplyCanvasFrame(
+  dataURL: string, settings: AppSettings
+): Promise<string> {
+  if (!settings.canvasFrameEnabled) return Promise.resolve(dataURL);
+  return fitToCanvasFrame(
+    dataURL, settings.canvasFrameWidth, settings.canvasFrameHeight, settings.canvasFrameBgColor
+  );
 }
 
 export function createThumbnail(dataURL: string, maxSize = 80): Promise<string> {
