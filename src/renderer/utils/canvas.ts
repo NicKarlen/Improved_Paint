@@ -408,29 +408,19 @@ export function distanceToShape(shape: Shape, px: number, py: number): number {
   }
 }
 
-export function drawImageWithBorder(
+export function drawScaledImage(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
-  borderColor: string,
-  borderWidth: number,
   renderScale: number
 ): { width: number; height: number } {
-  const bw = borderWidth * renderScale;
   const iw = img.width * renderScale;
   const ih = img.height * renderScale;
-  const totalW = Math.round(iw + bw * 2);
-  const totalH = Math.round(ih + bw * 2);
-
-  if (borderWidth > 0) {
-    ctx.fillStyle = borderColor;
-    ctx.fillRect(0, 0, totalW, totalH);
-  }
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, bw, bw, iw, ih);
+  ctx.drawImage(img, 0, 0, iw, ih);
 
-  return { width: totalW, height: totalH };
+  return { width: Math.round(iw), height: Math.round(ih) };
 }
 
 // ── Watermark ──
@@ -640,16 +630,119 @@ export async function detectTextRegions(
   });
 }
 
+// ── Beautify ──
+
+/** Draw a rounded-rect path */
+export function roundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number
+) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+/** Fill a gradient or solid background on the given context */
+export function fillBeautifyBg(
+  ctx: CanvasRenderingContext2D,
+  w: number, h: number,
+  bgType: 'solid' | 'gradient',
+  c1: string, c2: string, angleDeg: number
+) {
+  if (bgType === 'solid') {
+    ctx.fillStyle = c1;
+    ctx.fillRect(0, 0, w, h);
+  } else {
+    const rad = (angleDeg * Math.PI) / 180;
+    const cx = w / 2;
+    const cy = h / 2;
+    const len = Math.abs(w * Math.cos(rad)) / 2 + Math.abs(h * Math.sin(rad)) / 2;
+    const x0 = cx - Math.cos(rad) * len;
+    const y0 = cy - Math.sin(rad) * len;
+    const x1 = cx + Math.cos(rad) * len;
+    const y1 = cy + Math.sin(rad) * len;
+    const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+    grad.addColorStop(0, c1);
+    grad.addColorStop(1, c2);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+}
+
+export function applyBeautify(
+  sourceDataURL: string,
+  settings: AppSettings
+): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const pad = settings.beautifyPadding;
+      const radius = settings.beautifyCornerRadius;
+      const shadow = settings.beautifyShadow;
+      const totalW = img.width + pad * 2;
+      const totalH = img.height + pad * 2;
+
+      const c = document.createElement('canvas');
+      c.width = totalW;
+      c.height = totalH;
+      const ctx = c.getContext('2d')!;
+
+      // Clip to outer radius if set
+      const outerR = settings.beautifyOuterRadius || 0;
+      if (outerR > 0) {
+        roundedRectPath(ctx, 0, 0, totalW, totalH, outerR);
+        ctx.clip();
+      }
+
+      // Background
+      fillBeautifyBg(ctx, totalW, totalH,
+        settings.beautifyBgType, settings.beautifyBgColor1,
+        settings.beautifyBgColor2, settings.beautifyGradientAngle);
+
+      // Shadow
+      if (shadow > 0) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        ctx.shadowBlur = shadow;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = shadow * 0.3;
+        ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+        roundedRectPath(ctx, pad, pad, img.width, img.height, radius);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Clip to rounded rect and draw image
+      ctx.save();
+      roundedRectPath(ctx, pad, pad, img.width, img.height, radius);
+      ctx.clip();
+      ctx.drawImage(img, pad, pad);
+      ctx.restore();
+
+      resolve(c.toDataURL('image/png'));
+    };
+    img.src = sourceDataURL;
+  });
+}
+
 export async function compositeExport(
   baseDataURL: string,
   indicators: StepIndicator[],
   shapes: Shape[],
-  borderColor: string,
-  borderWidth: number,
   stepSize: number,
   watermarkDataURL?: string | null,
   watermarkSize = 24,
-  textAnnotations: TextAnnotation[] = []
+  textAnnotations: TextAnnotation[] = [],
+  beautifySettings?: AppSettings | null
 ): Promise<string> {
   const img = await new Promise<HTMLImageElement>((resolve) => {
     const i = new Image();
@@ -658,30 +751,30 @@ export async function compositeExport(
   });
 
   const c = document.createElement('canvas');
-  c.width = img.width + borderWidth * 2;
-  c.height = img.height + borderWidth * 2;
+  c.width = img.width;
+  c.height = img.height;
   const ctx = c.getContext('2d')!;
 
-  drawImageWithBorder(ctx, img, borderColor, borderWidth, 1);
+  drawScaledImage(ctx, img, 1);
 
   // Render blur shapes first (they need underlying pixels)
   for (const s of shapes) {
     if (s.type === 'blur') {
-      renderBlurShape(ctx, { ...s, x1: s.x1 + borderWidth, y1: s.y1 + borderWidth, x2: s.x2 + borderWidth, y2: s.y2 + borderWidth }, 1);
+      renderBlurShape(ctx, s, 1);
     }
   }
   for (const s of shapes) {
     if (s.type !== 'blur') {
-      renderShape(ctx, { ...s, x1: s.x1 + borderWidth, y1: s.y1 + borderWidth, x2: s.x2 + borderWidth, y2: s.y2 + borderWidth }, 1);
+      renderShape(ctx, s, 1);
     }
   }
 
   for (const ind of indicators) {
-    renderStepIndicator(ctx, { ...ind, x: ind.x + borderWidth, y: ind.y + borderWidth }, 1, stepSize, ind.color);
+    renderStepIndicator(ctx, ind, 1, stepSize, ind.color);
   }
 
   for (const ta of textAnnotations) {
-    renderTextAnnotation(ctx, { ...ta, x: ta.x + borderWidth, y: ta.y + borderWidth }, 1);
+    renderTextAnnotation(ctx, ta, 1);
   }
 
   if (watermarkDataURL) {
@@ -689,5 +782,11 @@ export async function compositeExport(
     drawWatermark(ctx, wm, c.width, c.height, 1, watermarkSize);
   }
 
-  return c.toDataURL('image/png');
+  let result = c.toDataURL('image/png');
+
+  if (beautifySettings && beautifySettings.beautifyEnabled) {
+    result = await applyBeautify(result, beautifySettings);
+  }
+
+  return result;
 }

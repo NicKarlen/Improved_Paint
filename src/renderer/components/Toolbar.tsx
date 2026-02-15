@@ -31,6 +31,18 @@ export default function Toolbar() {
   const exportableTabs = state.tabs.filter(t => t.imageDataURL);
 
   const activeTab = state.tabs.find(t => t.id === state.activeTabId);
+  const tabId = state.activeTabId;
+
+  // Look up selected element
+  const selectedId = state.selectedId;
+  const selectedKind = state.selectedKind;
+  const selectedStep = selectedKind === 'step' && tabId
+    ? (state.stepIndicators[tabId] || []).find(s => s.id === selectedId) : null;
+  const selectedShape = selectedKind === 'shape' && tabId
+    ? (state.shapes[tabId] || []).find(s => s.id === selectedId) : null;
+  const selectedText = selectedKind === 'text' && tabId
+    ? (state.textAnnotations[tabId] || []).find(t => t.id === selectedId) : null;
+  const hasSelection = state.tool === 'select' && (selectedStep || selectedShape || selectedText);
 
   async function handleCopyToClipboard() {
     if (!activeTab || !activeTab.imageDataURL) return;
@@ -39,8 +51,8 @@ export default function Toolbar() {
       const indicators = state.stepIndicators[activeTab.id] || [];
       const shapes = state.shapes[activeTab.id] || [];
       const texts = state.textAnnotations[activeTab.id] || [];
-      const { borderColor, borderWidth: rawBW, borderEnabled, stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled } = state.settings;
-      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, borderEnabled ? rawBW : 0, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts);
+      const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled } = state.settings;
+      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null);
       await window.electronAPI.writeClipboardImage(dataURL);
     } finally {
       setCopying(false);
@@ -87,8 +99,7 @@ export default function Toolbar() {
     if (exportableTabs.length === 0) return;
     setExporting(true);
     try {
-      const { borderColor, borderWidth: rawBW2, borderEnabled: be, stepSize, watermarkDataURL: rawWM2, watermarkSize, watermarkEnabled: we, exportFormat, exportQuality } = state.settings;
-      const borderWidth = be ? rawBW2 : 0;
+      const { stepSize, watermarkDataURL: rawWM2, watermarkSize, watermarkEnabled: we, exportFormat, exportQuality } = state.settings;
       const watermarkDataURL = we ? rawWM2 : null;
       const extMap = { png: 'png', jpeg: 'jpg', webp: 'webp' } as const;
       const ext = extMap[exportFormat];
@@ -98,7 +109,7 @@ export default function Toolbar() {
         const indicators = state.stepIndicators[tab.id] || [];
         const shapes = state.shapes[tab.id] || [];
         const texts = state.textAnnotations[tab.id] || [];
-        let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, borderColor, borderWidth, stepSize, watermarkDataURL, watermarkSize, texts);
+        let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkDataURL, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null);
 
         if (exportFormat !== 'png') {
           const img = new Image();
@@ -120,12 +131,11 @@ export default function Toolbar() {
     }
   }
 
-  const tabId = state.activeTabId;
   const hist = tabId ? state.history[tabId] : null;
   const canUndo = !!hist && hist.undoStack.length > 0;
   const canRedo = !!hist && hist.redoStack.length > 0;
 
-  const hasOptions = state.tool === 'step' || state.tool === 'text' || isShapeTool || state.tool === 'blur' || simplifying || !!simplifyStatus;
+  const hasOptions = state.tool === 'step' || state.tool === 'text' || isShapeTool || state.tool === 'blur' || simplifying || !!simplifyStatus || hasSelection;
 
   return (
     <div className="toolbar-outer">
@@ -448,6 +458,149 @@ export default function Toolbar() {
             </div>
           )}
 
+          {/* Selected step indicator properties */}
+          {selectedStep && tabId && (
+            <>
+              <div className="toolbar-group">
+                <label>
+                  Color:
+                  <input
+                    type="color"
+                    value={selectedStep.color}
+                    onChange={(e) => dispatch({ type: 'UPDATE_STEP_INDICATOR', tabId, id: selectedStep.id, changes: { color: e.target.value } })}
+                  />
+                </label>
+              </div>
+              <div className="toolbar-group">
+                <label>
+                  Size:
+                  <input
+                    type="range"
+                    min={16}
+                    max={80}
+                    value={state.settings.stepSize}
+                    onChange={(e) => dispatch({ type: 'SET_SETTINGS', settings: { stepSize: Number(e.target.value) } })}
+                  />
+                  <span style={{ minWidth: 28, textAlign: 'right' }}>{state.settings.stepSize}</span>
+                </label>
+              </div>
+            </>
+          )}
+
+          {/* Selected shape properties */}
+          {selectedShape && tabId && (
+            <>
+              {selectedShape.type === 'rect' && (
+                <div className="toolbar-group">
+                  <label>Mode:</label>
+                  <select
+                    value={selectedShape.rectMode}
+                    onChange={(e) => dispatch({ type: 'UPDATE_SHAPE', tabId, id: selectedShape.id, changes: { rectMode: e.target.value as 'normal' | 'blackout' | 'whiteout' } })}
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="blackout">Blackout</option>
+                    <option value="whiteout">Whiteout</option>
+                  </select>
+                </div>
+              )}
+              {selectedShape.type === 'blur' && (
+                <div className="toolbar-group">
+                  <label>
+                    Strength:
+                    <input
+                      type="range"
+                      min={2}
+                      max={20}
+                      value={selectedShape.blurStrength ?? 8}
+                      onChange={(e) => dispatch({ type: 'UPDATE_SHAPE', tabId, id: selectedShape.id, changes: { blurStrength: Number(e.target.value) } })}
+                    />
+                    <span style={{ minWidth: 20, textAlign: 'right' }}>{selectedShape.blurStrength ?? 8}</span>
+                  </label>
+                </div>
+              )}
+              {(selectedShape.type === 'arrow' || (selectedShape.type === 'rect' && selectedShape.rectMode === 'normal')) && (
+                <div className="toolbar-group">
+                  <label>
+                    Color:
+                    <input
+                      type="color"
+                      value={selectedShape.color}
+                      onChange={(e) => dispatch({ type: 'UPDATE_SHAPE', tabId, id: selectedShape.id, changes: { color: e.target.value } })}
+                    />
+                  </label>
+                </div>
+              )}
+              {selectedShape.type !== 'blur' && (
+                <div className="toolbar-group">
+                  <label>
+                    Stroke:
+                    <input
+                      type="range"
+                      min={1}
+                      max={12}
+                      value={selectedShape.strokeWidth}
+                      onChange={(e) => dispatch({ type: 'UPDATE_SHAPE', tabId, id: selectedShape.id, changes: { strokeWidth: Number(e.target.value) } })}
+                    />
+                    <span style={{ minWidth: 20, textAlign: 'right' }}>{selectedShape.strokeWidth}</span>
+                  </label>
+                </div>
+              )}
+              {selectedShape.type === 'rect' && selectedShape.rectMode === 'normal' && (
+                <div className="toolbar-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={selectedShape.filled}
+                      onChange={(e) => dispatch({ type: 'UPDATE_SHAPE', tabId, id: selectedShape.id, changes: { filled: e.target.checked } })}
+                    />
+                    Fill
+                  </label>
+                </div>
+              )}
+              {selectedShape.type === 'arrow' && (
+                <div className="toolbar-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={selectedShape.arrowChevrons}
+                      onChange={(e) => dispatch({ type: 'UPDATE_SHAPE', tabId, id: selectedShape.id, changes: { arrowChevrons: e.target.checked } })}
+                    />
+                    Chevrons
+                  </label>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Selected text annotation properties */}
+          {selectedText && tabId && (
+            <>
+              <div className="toolbar-group">
+                <label>
+                  Color:
+                  <input
+                    type="color"
+                    value={selectedText.color}
+                    onChange={(e) => dispatch({ type: 'UPDATE_TEXT_ANNOTATION', tabId, id: selectedText.id, changes: { color: e.target.value } })}
+                  />
+                </label>
+              </div>
+              <div className="toolbar-group">
+                <label>
+                  Size:
+                  <input
+                    type="range"
+                    min={10}
+                    max={48}
+                    value={selectedText.fontSize}
+                    onChange={(e) => dispatch({ type: 'UPDATE_TEXT_ANNOTATION', tabId, id: selectedText.id, changes: { fontSize: Number(e.target.value) } })}
+                  />
+                  <span style={{ minWidth: 28, textAlign: 'right' }}>{selectedText.fontSize}</span>
+                </label>
+              </div>
+            </>
+          )}
+
           {/* Brand color swatches */}
           {(isShapeTool || state.tool === 'step' || state.tool === 'text') && (
             <>
@@ -462,6 +615,31 @@ export default function Toolbar() {
                     title={`Brand color ${i + 1}`}
                   />
                 ))}
+              </div>
+            </>
+          )}
+
+          {/* Brand color swatches for selected elements */}
+          {hasSelection && (
+            <>
+              <div className="toolbar-divider" />
+              <div className="toolbar-group">
+                {state.settings.companyColors.map((color, i) => {
+                  const currentColor = selectedStep?.color ?? selectedShape?.color ?? selectedText?.color ?? '';
+                  return (
+                    <button
+                      key={i}
+                      className={`color-swatch${currentColor === color ? ' swatch-active' : ''}`}
+                      style={{ background: color }}
+                      onClick={() => {
+                        if (selectedStep && tabId) dispatch({ type: 'UPDATE_STEP_INDICATOR', tabId, id: selectedStep.id, changes: { color } });
+                        if (selectedShape && tabId) dispatch({ type: 'UPDATE_SHAPE', tabId, id: selectedShape.id, changes: { color } });
+                        if (selectedText && tabId) dispatch({ type: 'UPDATE_TEXT_ANNOTATION', tabId, id: selectedText.id, changes: { color } });
+                      }}
+                      title={`Brand color ${i + 1}`}
+                    />
+                  );
+                })}
               </div>
             </>
           )}

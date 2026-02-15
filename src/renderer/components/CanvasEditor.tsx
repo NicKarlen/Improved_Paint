@@ -3,9 +3,10 @@ import { useAppState } from '../store/AppContext';
 import { Shape, TextAnnotation } from '../../shared/types';
 import {
   generateId, nextTabName, formatStepLabel, renderStepIndicator,
-  renderShape, renderBlurShape, distanceToShape, drawImageWithBorder,
+  renderShape, renderBlurShape, distanceToShape, drawScaledImage,
   drawWatermark, loadWatermark, renderTextAnnotation, measureTextAnnotation,
   createThumbnail, compositeExport, maybeApplyCanvasFrame,
+  fillBeautifyBg, roundedRectPath,
 } from '../utils/canvas';
 
 interface FloatingOverlay {
@@ -58,7 +59,7 @@ export default function CanvasEditor() {
   const textInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Select/move/resize state
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = state.selectedId;
   const dragTargetRef = useRef<DragTarget | null>(null);
   const isDraggingAnnotationRef = useRef(false);
 
@@ -66,9 +67,9 @@ export default function CanvasEditor() {
   const indicators = activeTab ? (state.stepIndicators[activeTab.id] || []) : [];
   const shapes = activeTab ? (state.shapes[activeTab.id] || []) : [];
   const textAnnotations = activeTab ? (state.textAnnotations[activeTab.id] || []) : [];
-  const { borderColor, borderWidth: rawBorderWidth, borderEnabled, stepSize, shapeColor, shapeStrokeWidth, shapeFilled, arrowChevrons, rectMode, watermarkDataURL: rawWatermarkDataURL, watermarkSize, watermarkEnabled, blurStrength, textFontSize } = state.settings;
-  const borderWidth = borderEnabled ? rawBorderWidth : 0;
+  const { stepSize, shapeColor, shapeStrokeWidth, shapeFilled, arrowChevrons, rectMode, watermarkDataURL: rawWatermarkDataURL, watermarkSize, watermarkEnabled, blurStrength, textFontSize, beautifyEnabled, beautifyPadding, beautifyCornerRadius, beautifyShadow, beautifyBgType, beautifyBgColor1, beautifyBgColor2, beautifyGradientAngle, beautifyOuterRadius } = state.settings;
   const watermarkDataURL = watermarkEnabled ? rawWatermarkDataURL : null;
+  const bPad = beautifyEnabled ? beautifyPadding : 0;
 
   useEffect(() => {
     setZoom(1);
@@ -77,12 +78,12 @@ export default function CanvasEditor() {
     setDrawingShape(null);
     setCropRegion(null);
     setTextInput(null);
-    setSelectedId(null);
+    dispatch({ type: 'SET_SELECTION', id: null, kind: null });
   }, [state.activeTabId]);
 
   // Clear selection when switching tools
   useEffect(() => {
-    if (state.tool !== 'select') setSelectedId(null);
+    if (state.tool !== 'select') dispatch({ type: 'SET_SELECTION', id: null, kind: null });
   }, [state.tool]);
 
   // Load watermark
@@ -115,8 +116,10 @@ export default function CanvasEditor() {
     if (!canvas || !container || !imageRef.current) return;
 
     const img = imageRef.current;
-    const totalW = img.width + borderWidth * 2;
-    const totalH = img.height + borderWidth * 2;
+    const imgAreaW = img.width;
+    const imgAreaH = img.height;
+    const totalW = imgAreaW + bPad * 2;
+    const totalH = imgAreaH + bPad * 2;
 
     const maxW = container.clientWidth - 40;
     const maxH = container.clientHeight - 40;
@@ -129,23 +132,64 @@ export default function CanvasEditor() {
     canvas.height = Math.round(totalH * renderScale);
 
     const ctx = canvas.getContext('2d')!;
-    drawImageWithBorder(ctx, img, borderColor, borderWidth, renderScale);
+    const off = bPad; // offset from canvas edge to image
+
+    // Beautify background
+    if (beautifyEnabled) {
+      // Outer radius clip
+      if (beautifyOuterRadius > 0) {
+        ctx.save();
+        roundedRectPath(ctx, 0, 0, canvas.width, canvas.height, beautifyOuterRadius * renderScale);
+        ctx.clip();
+      }
+
+      fillBeautifyBg(ctx, canvas.width, canvas.height,
+        beautifyBgType, beautifyBgColor1, beautifyBgColor2, beautifyGradientAngle);
+
+      // Drop shadow
+      if (beautifyShadow > 0) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        ctx.shadowBlur = beautifyShadow * renderScale;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = beautifyShadow * 0.3 * renderScale;
+        ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+        roundedRectPath(ctx, bPad * renderScale, bPad * renderScale,
+          imgAreaW * renderScale, imgAreaH * renderScale,
+          beautifyCornerRadius * renderScale);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Clip to rounded rect for image area
+      ctx.save();
+      roundedRectPath(ctx, bPad * renderScale, bPad * renderScale,
+        imgAreaW * renderScale, imgAreaH * renderScale,
+        beautifyCornerRadius * renderScale);
+      ctx.clip();
+    }
+
+    // Draw image (offset by bPad)
+    ctx.save();
+    ctx.translate(bPad * renderScale, bPad * renderScale);
+    drawScaledImage(ctx, img, renderScale);
+    ctx.restore();
 
     // Draw blur shapes first (they need underlying pixels)
     for (const s of shapes) {
       if (s.type === 'blur') {
         renderBlurShape(ctx, {
           ...s,
-          x1: s.x1 + borderWidth, y1: s.y1 + borderWidth,
-          x2: s.x2 + borderWidth, y2: s.y2 + borderWidth,
+          x1: s.x1 + off, y1: s.y1 + off,
+          x2: s.x2 + off, y2: s.y2 + off,
         }, renderScale);
       }
     }
     if (previewShape && previewShape.type === 'blur') {
       renderBlurShape(ctx, {
         ...previewShape,
-        x1: previewShape.x1 + borderWidth, y1: previewShape.y1 + borderWidth,
-        x2: previewShape.x2 + borderWidth, y2: previewShape.y2 + borderWidth,
+        x1: previewShape.x1 + off, y1: previewShape.y1 + off,
+        x2: previewShape.x2 + off, y2: previewShape.y2 + off,
       }, renderScale);
     }
 
@@ -154,16 +198,16 @@ export default function CanvasEditor() {
       if (s.type !== 'blur') {
         renderShape(ctx, {
           ...s,
-          x1: s.x1 + borderWidth, y1: s.y1 + borderWidth,
-          x2: s.x2 + borderWidth, y2: s.y2 + borderWidth,
+          x1: s.x1 + off, y1: s.y1 + off,
+          x2: s.x2 + off, y2: s.y2 + off,
         }, renderScale);
       }
     }
     if (previewShape && previewShape.type !== 'blur') {
       renderShape(ctx, {
         ...previewShape,
-        x1: previewShape.x1 + borderWidth, y1: previewShape.y1 + borderWidth,
-        x2: previewShape.x2 + borderWidth, y2: previewShape.y2 + borderWidth,
+        x1: previewShape.x1 + off, y1: previewShape.y1 + off,
+        x2: previewShape.x2 + off, y2: previewShape.y2 + off,
       }, renderScale);
     }
 
@@ -171,7 +215,7 @@ export default function CanvasEditor() {
     for (const ind of indicators) {
       renderStepIndicator(
         ctx,
-        { ...ind, x: ind.x + borderWidth, y: ind.y + borderWidth },
+        { ...ind, x: ind.x + off, y: ind.y + off },
         renderScale,
         stepSize,
         ind.color
@@ -182,20 +226,33 @@ export default function CanvasEditor() {
     for (const ta of textAnnotations) {
       renderTextAnnotation(
         ctx,
-        { ...ta, x: ta.x + borderWidth, y: ta.y + borderWidth },
+        { ...ta, x: ta.x + off, y: ta.y + off },
         renderScale
       );
     }
 
-    // Draw watermark
+    // Draw watermark on the inner image area (inside beautify clip)
     if (watermarkImg) {
-      drawWatermark(ctx, watermarkImg, canvas.width, canvas.height, renderScale, watermarkSize);
+      const wmAreaW = img.width * renderScale;
+      const wmAreaH = img.height * renderScale;
+      ctx.save();
+      ctx.translate(bPad * renderScale, bPad * renderScale);
+      drawWatermark(ctx, watermarkImg, wmAreaW, wmAreaH, renderScale, watermarkSize);
+      ctx.restore();
+    }
+
+    // Close beautify clips
+    if (beautifyEnabled) {
+      ctx.restore(); // inner corner radius clip
+      if (beautifyOuterRadius > 0) {
+        ctx.restore(); // outer radius clip
+      }
     }
 
     // Draw floating overlay
     if (overlay) {
-      const ox = (overlay.x + borderWidth) * renderScale;
-      const oy = (overlay.y + borderWidth) * renderScale;
+      const ox = (overlay.x + off) * renderScale;
+      const oy = (overlay.y + off) * renderScale;
       const ow = overlay.image.width * renderScale;
       const oh = overlay.image.height * renderScale;
 
@@ -214,8 +271,8 @@ export default function CanvasEditor() {
 
     // Draw crop preview
     if (cropRegion) {
-      const cx1 = (Math.min(cropRegion.x1, cropRegion.x2) + borderWidth) * renderScale;
-      const cy1 = (Math.min(cropRegion.y1, cropRegion.y2) + borderWidth) * renderScale;
+      const cx1 = (Math.min(cropRegion.x1, cropRegion.x2) + off) * renderScale;
+      const cy1 = (Math.min(cropRegion.y1, cropRegion.y2) + off) * renderScale;
       const cw = Math.abs(cropRegion.x2 - cropRegion.x1) * renderScale;
       const ch = Math.abs(cropRegion.y2 - cropRegion.y1) * renderScale;
 
@@ -224,22 +281,25 @@ export default function CanvasEditor() {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.clearRect(cx1, cy1, cw, ch);
       // Redraw full image + annotations inside crop area
-      drawImageWithBorder(ctx, img, borderColor, borderWidth, renderScale);
+      ctx.save();
+      ctx.translate(bPad * renderScale, bPad * renderScale);
+      drawScaledImage(ctx, img, renderScale);
+      ctx.restore();
       for (const s of shapes) {
         if (s.type === 'blur') {
-          renderBlurShape(ctx, { ...s, x1: s.x1 + borderWidth, y1: s.y1 + borderWidth, x2: s.x2 + borderWidth, y2: s.y2 + borderWidth }, renderScale);
+          renderBlurShape(ctx, { ...s, x1: s.x1 + off, y1: s.y1 + off, x2: s.x2 + off, y2: s.y2 + off }, renderScale);
         }
       }
       for (const s of shapes) {
         if (s.type !== 'blur') {
-          renderShape(ctx, { ...s, x1: s.x1 + borderWidth, y1: s.y1 + borderWidth, x2: s.x2 + borderWidth, y2: s.y2 + borderWidth }, renderScale);
+          renderShape(ctx, { ...s, x1: s.x1 + off, y1: s.y1 + off, x2: s.x2 + off, y2: s.y2 + off }, renderScale);
         }
       }
       for (const ind of indicators) {
-        renderStepIndicator(ctx, { ...ind, x: ind.x + borderWidth, y: ind.y + borderWidth }, renderScale, stepSize, ind.color);
+        renderStepIndicator(ctx, { ...ind, x: ind.x + off, y: ind.y + off }, renderScale, stepSize, ind.color);
       }
       for (const ta of textAnnotations) {
-        renderTextAnnotation(ctx, { ...ta, x: ta.x + borderWidth, y: ta.y + borderWidth }, renderScale);
+        renderTextAnnotation(ctx, { ...ta, x: ta.x + off, y: ta.y + off }, renderScale);
       }
       // Re-dim outside crop
       ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
@@ -268,8 +328,8 @@ export default function CanvasEditor() {
       // Check step indicators
       for (const ind of indicators) {
         if (ind.id === selectedId) {
-          const sx = (ind.x + borderWidth) * renderScale;
-          const sy = (ind.y + borderWidth) * renderScale;
+          const sx = (ind.x + off) * renderScale;
+          const sy = (ind.y + off) * renderScale;
           const sr = (stepSize / 2 + 4) * renderScale;
           ctx.beginPath();
           ctx.arc(sx, sy, sr, 0, Math.PI * 2);
@@ -285,16 +345,16 @@ export default function CanvasEditor() {
       // Check shapes
       for (const s of shapes) {
         if (s.id === selectedId) {
-          const sx1 = (Math.min(s.x1, s.x2) + borderWidth) * renderScale;
-          const sy1 = (Math.min(s.y1, s.y2) + borderWidth) * renderScale;
+          const sx1 = (Math.min(s.x1, s.x2) + off) * renderScale;
+          const sy1 = (Math.min(s.y1, s.y2) + off) * renderScale;
           const sw = Math.abs(s.x2 - s.x1) * renderScale;
           const sh = Math.abs(s.y2 - s.y1) * renderScale;
 
           if (s.type === 'arrow') {
-            const ax1 = (s.x1 + borderWidth) * renderScale;
-            const ay1 = (s.y1 + borderWidth) * renderScale;
-            const ax2 = (s.x2 + borderWidth) * renderScale;
-            const ay2 = (s.y2 + borderWidth) * renderScale;
+            const ax1 = (s.x1 + off) * renderScale;
+            const ay1 = (s.y1 + off) * renderScale;
+            const ax2 = (s.x2 + off) * renderScale;
+            const ay2 = (s.y2 + off) * renderScale;
             ctx.beginPath();
             ctx.moveTo(ax1, ay1);
             ctx.lineTo(ax2, ay2);
@@ -315,15 +375,15 @@ export default function CanvasEditor() {
       for (const ta of textAnnotations) {
         if (ta.id === selectedId) {
           const dims = measureTextAnnotation(ctx, ta.text, ta.fontSize, renderScale);
-          const tx = (ta.x + borderWidth) * renderScale;
-          const ty = (ta.y + borderWidth) * renderScale;
+          const tx = (ta.x + off) * renderScale;
+          const ty = (ta.y + off) * renderScale;
           ctx.strokeRect(tx - 2, ty - 2, dims.width + 4, dims.height + 4);
         }
       }
 
       ctx.restore();
     }
-  }, [indicators, shapes, textAnnotations, zoom, isFitMode, borderColor, borderWidth, stepSize, watermarkSize, watermarkImg, overlay, previewShape, cropRegion, selectedId, state.tool]);
+  }, [indicators, shapes, textAnnotations, zoom, isFitMode, stepSize, watermarkSize, watermarkImg, overlay, previewShape, cropRegion, selectedId, state.tool, beautifyEnabled, bPad, beautifyCornerRadius, beautifyShadow, beautifyBgType, beautifyBgColor1, beautifyBgColor2, beautifyGradientAngle, beautifyOuterRadius]);
 
   useEffect(() => {
     if (!activeTab || !activeTab.imageDataURL) { imageRef.current = null; return; }
@@ -404,7 +464,7 @@ export default function CanvasEditor() {
   function toImageCoords(e: React.MouseEvent<HTMLCanvasElement> | MouseEvent) {
     const rect = canvasRef.current!.getBoundingClientRect();
     const scale = getEffectiveScale();
-    return { x: (e.clientX - rect.left) / scale - borderWidth, y: (e.clientY - rect.top) / scale - borderWidth };
+    return { x: (e.clientX - rect.left) / scale - bPad, y: (e.clientY - rect.top) / scale - bPad };
   }
 
   function isInsideOverlay(ix: number, iy: number): boolean {
@@ -567,7 +627,7 @@ export default function CanvasEditor() {
     if (state.tool === 'select') {
       const hit = findAnnotationAt(x, y);
       if (hit) {
-        setSelectedId(hit.id);
+        dispatch({ type: 'SET_SELECTION', id: hit.id, kind: hit.kind });
         isDraggingAnnotationRef.current = true;
 
         if (hit.kind === 'step') {
@@ -590,7 +650,7 @@ export default function CanvasEditor() {
         e.preventDefault();
         return;
       } else {
-        setSelectedId(null);
+        dispatch({ type: 'SET_SELECTION', id: null, kind: null });
       }
     }
 
@@ -610,8 +670,8 @@ export default function CanvasEditor() {
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
         const scale = getEffectiveScale();
-        const cx = (ev.clientX - rect.left) / scale - borderWidth;
-        const cy = (ev.clientY - rect.top) / scale - borderWidth;
+        const cx = (ev.clientX - rect.left) / scale - bPad;
+        const cy = (ev.clientY - rect.top) / scale - bPad;
         setCropRegion(prev => prev ? { ...prev, x2: cx, y2: cy } : null);
       };
       const cropUp = () => {
@@ -680,11 +740,23 @@ export default function CanvasEditor() {
           });
         } else {
           // Resize via corner handle
+          let nx = x, ny = y;
+          // Shift-snap for arrows: lock to 45-degree increments
+          if (e.shiftKey && shape.type === 'arrow') {
+            const anchorX = (target.handle === 'x1y1') ? shape.x2 : shape.x1;
+            const anchorY = (target.handle === 'x1y1') ? shape.y2 : shape.y1;
+            const dx = nx - anchorX;
+            const dy = ny - anchorY;
+            const len = Math.hypot(dx, dy);
+            const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+            nx = anchorX + Math.cos(angle) * len;
+            ny = anchorY + Math.sin(angle) * len;
+          }
           const changes: Partial<Shape> = {};
-          if (target.handle === 'x1y1') { changes.x1 = x; changes.y1 = y; }
-          else if (target.handle === 'x2y2') { changes.x2 = x; changes.y2 = y; }
-          else if (target.handle === 'x1y2') { changes.x1 = x; changes.y2 = y; }
-          else if (target.handle === 'x2y1') { changes.x2 = x; changes.y1 = y; }
+          if (target.handle === 'x1y1') { changes.x1 = nx; changes.y1 = ny; }
+          else if (target.handle === 'x2y2') { changes.x2 = nx; changes.y2 = ny; }
+          else if (target.handle === 'x1y2') { changes.x1 = nx; changes.y2 = ny; }
+          else if (target.handle === 'x2y1') { changes.x2 = nx; changes.y1 = ny; }
           dispatch({ type: 'UPDATE_SHAPE', tabId: activeTab.id, id: target.id, changes });
         }
       }
@@ -823,7 +895,7 @@ export default function CanvasEditor() {
     }
 
     if (closest) {
-      if (selectedId === closest.id) setSelectedId(null);
+      if (selectedId === closest.id) dispatch({ type: 'SET_SELECTION', id: null, kind: null });
       dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: closest.id });
     }
   }
@@ -853,7 +925,7 @@ export default function CanvasEditor() {
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && activeTab && state.tool === 'select') {
         e.preventDefault();
         dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: selectedId });
-        setSelectedId(null);
+        dispatch({ type: 'SET_SELECTION', id: null, kind: null });
         return;
       }
 
@@ -876,8 +948,8 @@ export default function CanvasEditor() {
         const indicators = state.stepIndicators[activeTab.id] || [];
         const shapes = state.shapes[activeTab.id] || [];
         const texts = state.textAnnotations[activeTab.id] || [];
-        const { borderColor, borderWidth: rawBW, borderEnabled: be, stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled: we } = state.settings;
-        const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, borderColor, be ? rawBW : 0, stepSize, we ? rawWM : null, watermarkSize, texts);
+        const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled: we } = state.settings;
+        const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, we ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null);
         await window.electronAPI.writeClipboardImage(dataURL);
         return;
       }
@@ -939,8 +1011,8 @@ export default function CanvasEditor() {
     const containerRect = container?.getBoundingClientRect();
     if (!containerRect) return null;
     return {
-      left: rect.left - containerRect.left + (textInput.x + borderWidth) * scale,
-      top: rect.top - containerRect.top + (textInput.y + borderWidth) * scale,
+      left: rect.left - containerRect.left + (textInput.x + bPad) * scale,
+      top: rect.top - containerRect.top + (textInput.y + bPad) * scale,
     };
   })() : null;
 
@@ -1018,7 +1090,7 @@ export default function CanvasEditor() {
       <div className="canvas-status">
         {imageRef.current && (
           <span className="image-dimensions">
-            {imageRef.current.width + borderWidth * 2} &times; {imageRef.current.height + borderWidth * 2}px
+            {imageRef.current.width + bPad * 2} &times; {imageRef.current.height + bPad * 2}px
           </span>
         )}
         <div className="zoom-controls">

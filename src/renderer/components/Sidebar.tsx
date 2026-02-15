@@ -101,10 +101,10 @@ export default function Sidebar() {
   async function handleExportSingle(tabId: string) {
     const tab = state.tabs.find(t => t.id === tabId);
     if (!tab || !tab.imageDataURL) return;
-    const { borderColor, borderWidth: rawBW, borderEnabled, stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled, exportFormat, exportQuality } = state.settings;
+    const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled, exportFormat, exportQuality } = state.settings;
     const indicators = state.stepIndicators[tab.id] || [];
     const shapes = state.shapes[tab.id] || [];
-    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, borderColor, borderEnabled ? rawBW : 0, stepSize, watermarkEnabled ? rawWM : null, watermarkSize);
+    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, [], state.settings.beautifyEnabled ? state.settings : null);
 
     if (exportFormat !== 'png') {
       const img = new Image();

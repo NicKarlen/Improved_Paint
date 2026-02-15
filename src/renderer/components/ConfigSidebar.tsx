@@ -1,12 +1,13 @@
 import { useRef } from 'react';
 import { useAppState } from '../store/AppContext';
+import { AppSettings } from '../../shared/types';
 
 export default function ConfigSidebar() {
   const { state, dispatch } = useAppState();
   const { settings } = state;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function setSettings(patch: Parameters<typeof dispatch>[0] extends { type: 'SET_SETTINGS'; settings: infer S } ? S : never) {
+  function setSettings(patch: Partial<AppSettings>) {
     dispatch({ type: 'SET_SETTINGS', settings: patch });
   }
 
@@ -17,8 +18,8 @@ export default function ConfigSidebar() {
   }
 
   async function handleWatermarkUpload() {
-    const filePath = await window.electronAPI.openFile();
-    if (!filePath) return;
+    const result = await window.electronAPI.openFile();
+    if (!result) return;
     // Read the file as data URL via canvas
     const img = new Image();
     img.onload = () => {
@@ -29,7 +30,7 @@ export default function ConfigSidebar() {
       ctx.drawImage(img, 0, 0);
       setSettings({ watermarkDataURL: c.toDataURL('image/png') });
     };
-    img.src = filePath;
+    img.src = result.dataURL;
   }
 
   function handleResetWatermark() {
@@ -58,31 +59,96 @@ export default function ConfigSidebar() {
         <label className="config-heading config-heading-toggle">
           <input
             type="checkbox"
-            checked={settings.borderEnabled}
-            onChange={(e) => setSettings({ borderEnabled: e.target.checked })}
+            checked={settings.beautifyEnabled}
+            onChange={(e) => setSettings({ beautifyEnabled: e.target.checked })}
           />
-          Border
+          Beautify
         </label>
+        <div className="config-row">
+          <span>Background</span>
+          <select
+            value={settings.beautifyBgType}
+            onChange={(e) => setSettings({ beautifyBgType: e.target.value as 'solid' | 'gradient' })}
+            style={{ width: 80 }}
+          >
+            <option value="gradient">Gradient</option>
+            <option value="solid">Solid</option>
+          </select>
+        </div>
         <label className="config-row">
-          <span>Color</span>
+          <span>Color 1</span>
           <input
             type="color"
-            value={settings.borderColor}
-            onChange={(e) => setSettings({ borderColor: e.target.value })}
+            value={settings.beautifyBgColor1}
+            onChange={(e) => setSettings({ beautifyBgColor1: e.target.value })}
           />
         </label>
+        {settings.beautifyBgType === 'gradient' && (
+          <>
+            <label className="config-row">
+              <span>Color 2</span>
+              <input
+                type="color"
+                value={settings.beautifyBgColor2}
+                onChange={(e) => setSettings({ beautifyBgColor2: e.target.value })}
+              />
+            </label>
+            <label className="config-row">
+              <span>Angle</span>
+              <input
+                type="range"
+                min={0}
+                max={360}
+                value={settings.beautifyGradientAngle}
+                onChange={(e) => setSettings({ beautifyGradientAngle: Number(e.target.value) })}
+              />
+              <span className="config-slider-value">{settings.beautifyGradientAngle}&deg;</span>
+            </label>
+          </>
+        )}
         <label className="config-row">
-          <span>Width</span>
-          <div className="config-row-input">
-            <input
-              type="number"
-              min={0}
-              max={50}
-              value={settings.borderWidth}
-              onChange={(e) => setSettings({ borderWidth: Number(e.target.value) })}
-            />
-            <span className="config-unit">px</span>
-          </div>
+          <span>Padding</span>
+          <input
+            type="range"
+            min={0}
+            max={150}
+            value={settings.beautifyPadding}
+            onChange={(e) => setSettings({ beautifyPadding: Number(e.target.value) })}
+          />
+          <span className="config-slider-value">{settings.beautifyPadding}</span>
+        </label>
+        <label className="config-row">
+          <span>Radius</span>
+          <input
+            type="range"
+            min={0}
+            max={40}
+            value={settings.beautifyCornerRadius}
+            onChange={(e) => setSettings({ beautifyCornerRadius: Number(e.target.value) })}
+          />
+          <span className="config-slider-value">{settings.beautifyCornerRadius}</span>
+        </label>
+        <label className="config-row">
+          <span>Shadow</span>
+          <input
+            type="range"
+            min={0}
+            max={50}
+            value={settings.beautifyShadow}
+            onChange={(e) => setSettings({ beautifyShadow: Number(e.target.value) })}
+          />
+          <span className="config-slider-value">{settings.beautifyShadow}</span>
+        </label>
+        <label className="config-row">
+          <span>Outer R.</span>
+          <input
+            type="range"
+            min={0}
+            max={40}
+            value={settings.beautifyOuterRadius}
+            onChange={(e) => setSettings({ beautifyOuterRadius: Number(e.target.value) })}
+          />
+          <span className="config-slider-value">{settings.beautifyOuterRadius}</span>
         </label>
       </div>
 

@@ -29,6 +29,8 @@ interface State {
   tool: ToolType;
   stepStyle: 'decimal' | 'roman';
   nextStepNumber: Record<string, number>;
+  selectedId: string | null;
+  selectedKind: 'step' | 'shape' | 'text' | null;
 }
 
 type Action =
@@ -53,7 +55,8 @@ type Action =
   | { type: 'REDO'; tabId: string }
   | { type: 'REORDER_TABS'; fromIndex: number; toIndex: number }
   | { type: 'CROP_IMAGE'; tabId: string; imageDataURL: string; thumbnail: string }
-  | { type: 'DUPLICATE_TAB'; sourceTabId: string; newTab: Tab };
+  | { type: 'DUPLICATE_TAB'; sourceTabId: string; newTab: Tab }
+  | { type: 'SET_SELECTION'; id: string | null; kind: 'step' | 'shape' | 'text' | null };
 
 const MAX_HISTORY = 50;
 
@@ -68,6 +71,8 @@ const initialState: State = {
   tool: 'select',
   stepStyle: 'decimal',
   nextStepNumber: {},
+  selectedId: null,
+  selectedKind: null,
 };
 
 /** Take a snapshot of current annotations for a tab */
@@ -121,7 +126,7 @@ function reducer(state: State, action: Action): State {
       return { ...state, tabs, activeTabId, stepIndicators, shapes, textAnnotations, history, nextStepNumber };
     }
     case 'SET_ACTIVE_TAB':
-      return { ...state, activeTabId: action.id };
+      return { ...state, activeTabId: action.id, selectedId: null, selectedKind: null };
     case 'UPDATE_TAB_IMAGE':
       return {
         ...state,
@@ -139,9 +144,11 @@ function reducer(state: State, action: Action): State {
     case 'LOAD_SETTINGS':
       return { ...state, settings: action.settings };
     case 'SET_TOOL':
-      return { ...state, tool: action.tool };
+      return { ...state, tool: action.tool, selectedId: null, selectedKind: null };
     case 'SET_STEP_STYLE':
       return { ...state, stepStyle: action.style };
+    case 'SET_SELECTION':
+      return { ...state, selectedId: action.id, selectedKind: action.kind };
 
     case 'ADD_STEP_INDICATOR': {
       const history = pushUndo(state, action.tabId);

@@ -44,9 +44,6 @@ export interface Shape {
 }
 
 export interface AppSettings {
-  borderColor: string;
-  borderWidth: number;
-  borderEnabled: boolean;
   stepSize: number;
   shapeColor: string;
   shapeStrokeWidth: number;
@@ -65,12 +62,18 @@ export interface AppSettings {
   canvasFrameWidth: number;
   canvasFrameHeight: number;
   canvasFrameBgColor: string;
+  beautifyEnabled: boolean;
+  beautifyPadding: number;
+  beautifyCornerRadius: number;
+  beautifyShadow: number;
+  beautifyBgType: 'solid' | 'gradient';
+  beautifyBgColor1: string;
+  beautifyBgColor2: string;
+  beautifyGradientAngle: number;
+  beautifyOuterRadius: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  borderColor: '#0ea5e9',
-  borderWidth: 4,
-  borderEnabled: true,
   stepSize: 28,
   shapeColor: '#ef4444',
   shapeStrokeWidth: 3,
@@ -89,4 +92,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   canvasFrameWidth: 1200,
   canvasFrameHeight: 800,
   canvasFrameBgColor: '#ffffff',
+  beautifyEnabled: false,
+  beautifyPadding: 60,
+  beautifyCornerRadius: 12,
+  beautifyShadow: 30,
+  beautifyBgType: 'gradient',
+  beautifyBgColor1: '#667eea',
+  beautifyBgColor2: '#764ba2',
+  beautifyGradientAngle: 135,
+  beautifyOuterRadius: 0,
 };
