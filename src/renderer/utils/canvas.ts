@@ -503,50 +503,76 @@ export async function detectTextRegions(
   } finally {
     await worker.terminate();
   }
-  const words: Array<{ bbox: { x0: number; y0: number; x1: number; y1: number }; confidence: number }> = [];
+  // Use line-level bounding boxes from Tesseract for more stable results
+  const merged: Array<{ x: number; y: number; w: number; h: number }> = [];
+  const imgW = c.width;
+  const imgH = c.height;
+  const CONF_THRESHOLD = 60;
+  const MIN_SIZE = 8;
+  const MAX_WIDTH_RATIO = 0.8;
+
   for (const block of page.blocks || []) {
     for (const para of block.paragraphs) {
       for (const line of para.lines) {
-        for (const word of line.words) {
-          words.push(word);
+        // Check if most words in the line are confident enough
+        const confidentWords = line.words.filter((w: { confidence: number }) => w.confidence >= CONF_THRESHOLD);
+        if (confidentWords.length < line.words.length * 0.5) continue;
+
+        const { x0, y0, x1, y1 } = line.bbox;
+        const w = x1 - x0;
+        const h = y1 - y0;
+        // Filter tiny and unreasonably large detections
+        if (w < MIN_SIZE || h < MIN_SIZE) continue;
+        if (w > imgW * MAX_WIDTH_RATIO) continue;
+
+        merged.push({ x: x0, y: y0, w, h });
+      }
+    }
+  }
+
+  // Fallback: if no lines passed, try word-level merge
+  if (merged.length === 0) {
+    const words: Array<{ bbox: { x0: number; y0: number; x1: number; y1: number }; confidence: number }> = [];
+    for (const block of page.blocks || []) {
+      for (const para of block.paragraphs) {
+        for (const line of para.lines) {
+          for (const word of line.words) {
+            words.push(word);
+          }
         }
       }
     }
-  }
-  if (words.length === 0) return [];
+    const sorted = [...words]
+      .filter(w => w.confidence >= CONF_THRESHOLD && (w.bbox.x1 - w.bbox.x0) >= MIN_SIZE && (w.bbox.y1 - w.bbox.y0) >= MIN_SIZE)
+      .sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
 
-  // Merge words on the same line into wider rects
-  // Sort by top then left
-  const sorted = [...words]
-    .filter(w => w.confidence > 30)
-    .sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
-
-  const merged: Array<{ x: number; y: number; w: number; h: number }> = [];
-  for (const word of sorted) {
-    const { x0, y0, x1, y1 } = word.bbox;
-    const last = merged[merged.length - 1];
-    // Merge if same approximate line (vertical overlap) and horizontal gap is small
-    if (last) {
-      const lastBottom = last.y + last.h;
-      const vOverlap = Math.min(lastBottom, y1) - Math.max(last.y, y0);
-      const lineHeight = Math.min(last.h, y1 - y0);
-      const hGap = x0 - (last.x + last.w);
-      if (vOverlap > lineHeight * 0.5 && hGap < lineHeight * 1.5) {
-        // Extend the last rect
-        const newX = Math.min(last.x, x0);
-        const newY = Math.min(last.y, y0);
-        last.w = Math.max(last.x + last.w, x1) - newX;
-        last.h = Math.max(lastBottom, y1) - newY;
-        last.x = newX;
-        last.y = newY;
-        continue;
+    for (const word of sorted) {
+      const { x0, y0, x1, y1 } = word.bbox;
+      if ((x1 - x0) > imgW * MAX_WIDTH_RATIO) continue;
+      const last = merged[merged.length - 1];
+      if (last) {
+        const lastBottom = last.y + last.h;
+        const vOverlap = Math.min(lastBottom, y1) - Math.max(last.y, y0);
+        const lineHeight = Math.min(last.h, y1 - y0);
+        const hGap = x0 - (last.x + last.w);
+        if (vOverlap > lineHeight * 0.5 && hGap < lineHeight * 1.5) {
+          const newX = Math.min(last.x, x0);
+          const newY = Math.min(last.y, y0);
+          last.w = Math.max(last.x + last.w, x1) - newX;
+          last.h = Math.max(lastBottom, y1) - newY;
+          last.x = newX;
+          last.y = newY;
+          continue;
+        }
       }
+      merged.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
     }
-    merged.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
   }
+
+  if (merged.length === 0) return [];
 
   // Pad each rect so text is fully covered
-  const pad = 3;
+  const pad = 4;
   for (const r of merged) {
     r.x = Math.max(0, r.x - pad);
     r.y = Math.max(0, r.y - pad);
