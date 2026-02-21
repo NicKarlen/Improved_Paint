@@ -1,6 +1,15 @@
 import { useRef } from 'react';
 import { useAppState } from '../store/AppContext';
-import { AppSettings } from '../../shared/types';
+import { AppSettings, ProfileSettings } from '../../shared/types';
+
+const PROFILE_KEYS: (keyof ProfileSettings)[] = [
+  'companyColors',
+  'beautifyEnabled', 'beautifyBgType', 'beautifyBgColor1', 'beautifyBgColor2',
+  'beautifyGradientAngle', 'beautifyPadding', 'beautifyCornerRadius',
+  'beautifyShadow', 'beautifyOuterRadius',
+  'canvasFrameEnabled', 'canvasFrameWidth', 'canvasFrameHeight', 'canvasFrameBgColor',
+  'watermarkEnabled', 'watermarkDataURL', 'watermarkSize',
+];
 
 export default function ConfigSidebar() {
   const { state, dispatch } = useAppState();
@@ -9,6 +18,21 @@ export default function ConfigSidebar() {
 
   function setSettings(patch: Partial<AppSettings>) {
     dispatch({ type: 'SET_SETTINGS', settings: patch });
+  }
+
+  function saveProfile(index: 0 | 1) {
+    const snap = Object.fromEntries(
+      PROFILE_KEYS.map(k => [k, settings[k]])
+    ) as ProfileSettings;
+    const next: [ProfileSettings | null, ProfileSettings | null] = [...settings.profiles] as any;
+    next[index] = snap;
+    setSettings({ profiles: next });
+  }
+
+  function loadProfile(index: 0 | 1) {
+    const p = settings.profiles[index];
+    if (!p) return;
+    setSettings(p);
   }
 
   function handleColorChange(index: number, color: string) {
@@ -37,8 +61,46 @@ export default function ConfigSidebar() {
     setSettings({ watermarkDataURL: null });
   }
 
+  const companyMode = settings.beautifyEnabled && settings.canvasFrameEnabled && settings.watermarkEnabled;
+
   return (
     <div className="config-sidebar">
+      <div className="config-section">
+        <label className="config-heading config-heading-toggle">
+          <input
+            type="checkbox"
+            checked={companyMode}
+            onChange={(e) => setSettings({
+              beautifyEnabled: e.target.checked,
+              canvasFrameEnabled: e.target.checked,
+              watermarkEnabled: e.target.checked,
+            })}
+          />
+          Company Mode
+        </label>
+        <div className="config-profiles">
+          {([0, 1] as const).map(i => (
+            <div className="config-profile-slot" key={i}>
+              <button
+                className="config-profile-load"
+                disabled={!settings.profiles[i]}
+                onClick={() => loadProfile(i)}
+                title={settings.profiles[i] ? `Load Profile ${i + 1}` : `Profile ${i + 1} — empty`}
+              >
+                P{i + 1}
+              </button>
+              <button
+                className="config-profile-save"
+                onClick={() => saveProfile(i)}
+                title={`Save current settings to Profile ${i + 1}`}
+              >
+                ⊙
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="config-section">
         <h4 className="config-heading">Brand Colors</h4>
         <div className="config-colors">

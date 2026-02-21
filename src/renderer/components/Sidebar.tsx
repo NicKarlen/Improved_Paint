@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAppState } from '../store/AppContext';
-import { generateId, nextTabName, compositeExport, maybeApplyCanvasFrame } from '../utils/canvas';
+import { generateId, nextTabName, compositeExport } from '../utils/canvas';
 
 interface ContextMenuState {
   tabId: string;
@@ -57,20 +57,18 @@ export default function Sidebar() {
   async function pasteFromClipboard() {
     const dataURL = await window.electronAPI.readClipboardImage();
     if (!dataURL) return;
-    const framed = await maybeApplyCanvasFrame(dataURL, state.settings);
     dispatch({
       type: 'ADD_TAB',
-      tab: { id: generateId(), name: nextTabName(state.tabs), imageDataURL: framed, thumbnail: '' },
+      tab: { id: generateId(), name: nextTabName(state.tabs), imageDataURL: dataURL, thumbnail: '' },
     });
   }
 
   async function openFile() {
     const result = await window.electronAPI.openFile();
     if (!result) return;
-    const framed = await maybeApplyCanvasFrame(result.dataURL, state.settings);
     dispatch({
       type: 'ADD_TAB',
-      tab: { id: generateId(), name: result.name, imageDataURL: framed, thumbnail: '' },
+      tab: { id: generateId(), name: result.name, imageDataURL: result.dataURL, thumbnail: '' },
     });
   }
 
@@ -104,7 +102,7 @@ export default function Sidebar() {
     const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled, exportFormat, exportQuality } = state.settings;
     const indicators = state.stepIndicators[tab.id] || [];
     const shapes = state.shapes[tab.id] || [];
-    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, [], state.settings.beautifyEnabled ? state.settings : null);
+    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, [], state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
 
     if (exportFormat !== 'png') {
       const img = new Image();

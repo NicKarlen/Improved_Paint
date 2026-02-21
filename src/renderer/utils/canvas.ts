@@ -60,15 +60,6 @@ export function fitToCanvasFrame(
   });
 }
 
-export function maybeApplyCanvasFrame(
-  dataURL: string, settings: AppSettings
-): Promise<string> {
-  if (!settings.canvasFrameEnabled) return Promise.resolve(dataURL);
-  return fitToCanvasFrame(
-    dataURL, settings.canvasFrameWidth, settings.canvasFrameHeight, settings.canvasFrameBgColor
-  );
-}
-
 export function createThumbnail(dataURL: string, maxSize = 80): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -742,7 +733,8 @@ export async function compositeExport(
   watermarkDataURL?: string | null,
   watermarkSize = 24,
   textAnnotations: TextAnnotation[] = [],
-  beautifySettings?: AppSettings | null
+  beautifySettings?: AppSettings | null,
+  frameSettings?: AppSettings | null
 ): Promise<string> {
   const img = await new Promise<HTMLImageElement>((resolve) => {
     const i = new Image();
@@ -777,12 +769,25 @@ export async function compositeExport(
     renderTextAnnotation(ctx, ta, 1);
   }
 
-  if (watermarkDataURL) {
-    const wm = await loadWatermark(watermarkDataURL);
-    drawWatermark(ctx, wm, c.width, c.height, 1, watermarkSize);
+  let result = c.toDataURL('image/png');
+
+  if (frameSettings && frameSettings.canvasFrameEnabled) {
+    result = await fitToCanvasFrame(result, frameSettings.canvasFrameWidth, frameSettings.canvasFrameHeight, frameSettings.canvasFrameBgColor);
   }
 
-  let result = c.toDataURL('image/png');
+  // Watermark goes on the outermost image area (frame if active, otherwise raw image)
+  if (watermarkDataURL) {
+    const wm = await loadWatermark(watermarkDataURL);
+    const base = await new Promise<HTMLImageElement>(resolve => {
+      const i = new Image(); i.onload = () => resolve(i); i.src = result;
+    });
+    const wc = document.createElement('canvas');
+    wc.width = base.width; wc.height = base.height;
+    const wctx = wc.getContext('2d')!;
+    wctx.drawImage(base, 0, 0);
+    drawWatermark(wctx, wm, wc.width, wc.height, 1, watermarkSize);
+    result = wc.toDataURL('image/png');
+  }
 
   if (beautifySettings && beautifySettings.beautifyEnabled) {
     result = await applyBeautify(result, beautifySettings);

@@ -55,6 +55,7 @@ type Action =
   | { type: 'REDO'; tabId: string }
   | { type: 'REORDER_TABS'; fromIndex: number; toIndex: number }
   | { type: 'CROP_IMAGE'; tabId: string; imageDataURL: string; thumbnail: string }
+  | { type: 'COMMIT_IMAGE_CHANGE'; tabId: string; imageDataURL: string; thumbnail: string }
   | { type: 'DUPLICATE_TAB'; sourceTabId: string; newTab: Tab }
   | { type: 'SET_SELECTION'; id: string | null; kind: 'step' | 'shape' | 'text' | null };
 
@@ -242,6 +243,28 @@ function reducer(state: State, action: Action): State {
         shapes: { ...state.shapes, [action.tabId]: [] },
         textAnnotations: { ...state.textAnnotations, [action.tabId]: [] },
         nextStepNumber: { ...state.nextStepNumber, [action.tabId]: 1 },
+        history: {
+          ...state.history,
+          [action.tabId]: {
+            undoStack: [...hist.undoStack.slice(-MAX_HISTORY + 1), snapWithImage],
+            redoStack: [],
+          },
+        },
+      };
+    }
+
+    case 'COMMIT_IMAGE_CHANGE': {
+      // Like CROP_IMAGE but keeps annotations intact (used for overlay commit)
+      const tab = state.tabs.find(t => t.id === action.tabId);
+      if (!tab) return state;
+      const currentSnap = snapshot(state, action.tabId);
+      const snapWithImage: AnnotationSnapshot = { ...currentSnap, imageDataURL: tab.imageDataURL, thumbnail: tab.thumbnail };
+      const hist = state.history[action.tabId] || { undoStack: [], redoStack: [] };
+      return {
+        ...state,
+        tabs: state.tabs.map(t =>
+          t.id === action.tabId ? { ...t, imageDataURL: action.imageDataURL, thumbnail: action.thumbnail } : t
+        ),
         history: {
           ...state.history,
           [action.tabId]: {

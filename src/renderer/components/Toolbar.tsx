@@ -52,7 +52,7 @@ export default function Toolbar() {
       const shapes = state.shapes[activeTab.id] || [];
       const texts = state.textAnnotations[activeTab.id] || [];
       const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled } = state.settings;
-      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null);
+      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
       await window.electronAPI.writeClipboardImage(dataURL);
     } finally {
       setCopying(false);
@@ -109,7 +109,7 @@ export default function Toolbar() {
         const indicators = state.stepIndicators[tab.id] || [];
         const shapes = state.shapes[tab.id] || [];
         const texts = state.textAnnotations[tab.id] || [];
-        let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkDataURL, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null);
+        let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkDataURL, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
 
         if (exportFormat !== 'png') {
           const img = new Image();

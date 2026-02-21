@@ -71,7 +71,17 @@ export interface AppSettings {
   beautifyBgColor2: string;
   beautifyGradientAngle: number;
   beautifyOuterRadius: number;
+  profiles: [ProfileSettings | null, ProfileSettings | null];
 }
+
+export type ProfileSettings = Pick<AppSettings,
+  | 'companyColors'
+  | 'beautifyEnabled' | 'beautifyBgType' | 'beautifyBgColor1' | 'beautifyBgColor2'
+  | 'beautifyGradientAngle' | 'beautifyPadding' | 'beautifyCornerRadius'
+  | 'beautifyShadow' | 'beautifyOuterRadius'
+  | 'canvasFrameEnabled' | 'canvasFrameWidth' | 'canvasFrameHeight' | 'canvasFrameBgColor'
+  | 'watermarkEnabled' | 'watermarkDataURL' | 'watermarkSize'
+>;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   stepSize: 28,
@@ -101,4 +111,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   beautifyBgColor2: '#764ba2',
   beautifyGradientAngle: 135,
   beautifyOuterRadius: 0,
+  profiles: [null, null],
 };
