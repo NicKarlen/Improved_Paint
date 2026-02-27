@@ -63,8 +63,9 @@ export default function CanvasEditor() {
   const [cropRegion, setCropRegion] = useState<DrawingShape | null>(null);
 
   // Text input state
-  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null);
+  const [textInput, setTextInput] = useState<{ x: number; y: number; clientX: number; clientY: number; editingId?: string; value: string } | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
+  const editingIdRef = useRef<string | null>(null);
 
   // Select/move/resize state
   const selectedId = state.selectedId;
@@ -119,6 +120,9 @@ export default function CanvasEditor() {
         blurStrength,
       }
     : null;
+
+  // Keep the ref in sync so draw() can skip the annotation being edited
+  editingIdRef.current = textInput?.editingId ?? null;
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -248,8 +252,9 @@ export default function CanvasEditor() {
       );
     }
 
-    // Draw text annotations
+    // Draw text annotations (skip the one currently being edited)
     for (const ta of textAnnotations) {
+      if (ta.id === editingIdRef.current) continue;
       renderTextAnnotation(
         ctx,
         { ...ta, x: ta.x + offX, y: ta.y + offY },
@@ -663,15 +668,29 @@ export default function CanvasEditor() {
   // ── Text input helpers ──
 
   function commitTextInput() {
-    if (!textInput || !activeTab || !textInput.value.trim()) {
+    if (!textInput || !activeTab) { setTextInput(null); return; }
+    const trimmed = textInput.value.trim();
+
+    if (textInput.editingId) {
+      // Editing an existing annotation — update text, or just cancel if empty
+      if (trimmed) {
+        dispatch({
+          type: 'UPDATE_TEXT_ANNOTATION',
+          tabId: activeTab.id,
+          id: textInput.editingId,
+          changes: { text: trimmed },
+        });
+      }
       setTextInput(null);
       return;
     }
-    // Measure on a temp canvas to get dimensions
+
+    if (!trimmed) { setTextInput(null); return; }
+
+    // New annotation
     const tmpCanvas = document.createElement('canvas');
     const tmpCtx = tmpCanvas.getContext('2d')!;
-    const dims = measureTextAnnotation(tmpCtx, textInput.value, textFontSize, 1);
-
+    const dims = measureTextAnnotation(tmpCtx, trimmed, textFontSize, 1);
     dispatch({
       type: 'ADD_TEXT_ANNOTATION',
       tabId: activeTab.id,
@@ -679,7 +698,7 @@ export default function CanvasEditor() {
         id: generateId(),
         x: textInput.x,
         y: textInput.y,
-        text: textInput.value,
+        text: trimmed,
         fontSize: textFontSize,
         color: shapeColor,
         width: dims.width,
@@ -1068,8 +1087,31 @@ export default function CanvasEditor() {
         commitTextInput();
       } else {
         const { x, y } = toImageCoords(e);
-        setTextInput({ x, y, value: '' });
+        setTextInput({ x, y, clientX: e.clientX, clientY: e.clientY, value: '' });
         setTimeout(() => textInputRef.current?.focus(), 0);
+      }
+    }
+  }
+
+  // Double-click: open text editor for an existing text annotation
+  function handleDoubleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!activeTab || !canvasRef.current) return;
+    const { x, y } = toImageCoords(e);
+    const ctx = canvasRef.current.getContext('2d')!;
+    for (const ta of textAnnotations) {
+      const dims = measureTextAnnotation(ctx, ta.text, ta.fontSize, 1);
+      if (x >= ta.x && x <= ta.x + dims.width && y >= ta.y && y <= ta.y + dims.height) {
+        // Position the textarea at the annotation's top-left corner
+        const rect = canvasRef.current.getBoundingClientRect();
+        const scale = getEffectiveScale();
+        const fs = canvasFrameEnabled ? frameScaleRef.current : 1;
+        const fox = canvasFrameEnabled ? frameOffXRef.current : 0;
+        const foy = canvasFrameEnabled ? frameOffYRef.current : 0;
+        const annotClientX = rect.left + (ta.x * fs + fox + bPad) * scale;
+        const annotClientY = rect.top + (ta.y * fs + foy + bPad) * scale;
+        setTextInput({ x: ta.x, y: ta.y, clientX: annotClientX, clientY: annotClientY, editingId: ta.id, value: ta.text });
+        setTimeout(() => { textInputRef.current?.focus(); textInputRef.current?.select(); }, 0);
+        return;
       }
     }
   }
@@ -1214,15 +1256,11 @@ export default function CanvasEditor() {
   }
 
   // Calculate text input position in screen coordinates
-  const textInputScreenPos = textInput && canvasRef.current ? (() => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scale = getEffectiveScale();
-    const container = containerRef.current;
-    const containerRect = container?.getBoundingClientRect();
-    if (!containerRect) return null;
+  const textInputScreenPos = textInput && containerRef.current ? (() => {
+    const containerRect = containerRef.current.getBoundingClientRect();
     return {
-      left: rect.left - containerRect.left + (textInput.x + bPad) * scale,
-      top: rect.top - containerRect.top + (textInput.y + bPad) * scale,
+      left: textInput.clientX - containerRect.left,
+      top: textInput.clientY - containerRect.top,
     };
   })() : null;
 
@@ -1233,6 +1271,7 @@ export default function CanvasEditor() {
           <canvas
             ref={canvasRef}
             onClick={handleCanvasClick}
+            onDoubleClick={handleDoubleClick}
             onContextMenu={handleContextMenu}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
