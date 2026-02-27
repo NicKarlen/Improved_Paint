@@ -714,3 +714,46 @@
   background: var(--bg-hover);
   color: #fff;
 }
+
+/* ── Info Button ── */
+.info-btn {
+  position: fixed;
+  bottom: 20px; right: 20px;
+  z-index: 90;
+  width: 32px; height: 32px;
+  border-radius: 50%; padding: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.info-btn:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
+
+/* ── Intro Dialog ── */
+.intro-dialog {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 28px 24px 20px;
+  width: 380px;
+  display: flex; flex-direction: column; align-items: center;
+}
+.intro-step-dots { display: flex; gap: 6px; margin-bottom: 20px; }
+.intro-dot {
+  width: 8px; height: 8px; border-radius: 50%; padding: 0;
+  background: var(--bg-hover); border: 1px solid var(--border); cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.intro-dot:hover { background: var(--bg-surface); border-color: var(--text-muted); }
+.intro-dot-active { background: var(--accent) !important; border-color: var(--accent) !important; }
+.intro-icon { color: var(--accent); margin-bottom: 16px; line-height: 0; }
+.intro-counter { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+.intro-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; text-align: center; }
+.intro-description {
+  font-size: 13px; color: var(--text-muted); line-height: 1.6;
+  text-align: center; margin-bottom: 24px; max-width: 320px;
+}
+.intro-actions { display: flex; gap: 8px; justify-content: center; width: 100%; }
+.intro-nav-btn { min-width: 72px; }
+.intro-nav-btn:disabled { opacity: 0.3; cursor: default; }
