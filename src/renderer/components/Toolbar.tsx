@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useAppState } from '../store/AppContext';
+import { useAppState, serializeProject } from '../store/AppContext';
 import { compositeExport, detectTextRegions, generateId } from '../utils/canvas';
 import ExportDialog from './ExportDialog';
 
@@ -125,7 +125,12 @@ export default function Toolbar() {
         const name = tab.name.replace(/\.[^.]+$/, '') + '.' + ext;
         files.push({ name, dataURL });
       }
-      await window.electronAPI.saveFiles(files);
+      const exportFolder = await window.electronAPI.saveFiles(files);
+      if (exportFolder && state.tabs.length > 0) {
+        const payload = JSON.stringify(serializeProject(state));
+        const firstName = state.tabs[0].name;
+        await window.electronAPI.saveProjectToFolder(exportFolder, payload, firstName);
+      }
     } finally {
       setExporting(false);
     }

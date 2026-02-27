@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAppState } from '../store/AppContext';
+import { useAppState, serializeProject } from '../store/AppContext';
 import { compositeExport } from '../utils/canvas';
 
 interface Props {
@@ -46,7 +46,12 @@ export default function ExportDialog({ onClose }: Props) {
 
     const extMap = { png: 'png', jpeg: 'jpg', webp: 'webp' } as const;
     const name = activeTab.name.replace(/\.[^.]+$/, '') + '.' + extMap[format];
-    await window.electronAPI.saveFile(exportURL, name, format);
+    const savedPath = await window.electronAPI.saveFile(exportURL, name, format);
+    if (savedPath) {
+      const folderPath = savedPath.replace(/[\\/][^\\/]+$/, '');
+      const payload = JSON.stringify(serializeProject(state));
+      await window.electronAPI.saveProjectToFolder(folderPath, payload, state.tabs[0].name);
+    }
     onClose();
   }
 

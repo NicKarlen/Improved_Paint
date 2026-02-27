@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { useAppState } from '../store/AppContext';
+import { useAppState, serializeProject } from '../store/AppContext';
 import { generateId, nextTabName, compositeExport } from '../utils/canvas';
+import { ProjectFile, IPAINT_VERSION } from '../../shared/types';
 
 interface ContextMenuState {
   tabId: string;
@@ -13,6 +14,8 @@ export default function Sidebar() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -54,22 +57,34 @@ export default function Sidebar() {
     setEditingId(null);
   }
 
-  async function pasteFromClipboard() {
-    const dataURL = await window.electronAPI.readClipboardImage();
-    if (!dataURL) return;
-    dispatch({
-      type: 'ADD_TAB',
-      tab: { id: generateId(), name: nextTabName(state.tabs), imageDataURL: dataURL, thumbnail: '' },
-    });
+  async function handleOpenProject() {
+    if (state.tabs.length > 0) {
+      if (!window.confirm('Opening a project will close all current tabs. Continue?')) return;
+    }
+    setOpening(true);
+    try {
+      const raw = await window.electronAPI.openProject();
+      if (!raw) return;
+      const project: ProjectFile = JSON.parse(raw);
+      if (project.version !== IPAINT_VERSION) {
+        alert('Incompatible project file version.');
+        return;
+      }
+      dispatch({ type: 'LOAD_PROJECT', project });
+    } catch { alert('Could not read project file.'); }
+    finally { setOpening(false); }
   }
 
-  async function openFile() {
-    const result = await window.electronAPI.openFile();
-    if (!result) return;
-    dispatch({
-      type: 'ADD_TAB',
-      tab: { id: generateId(), name: result.name, imageDataURL: result.dataURL, thumbnail: '' },
-    });
+  async function handleSaveProject() {
+    if (state.tabs.length === 0) return;
+    setSaving(true);
+    try {
+      const payload = JSON.stringify(serializeProject(state));
+      const defaultName = state.tabs[0].name;
+      await window.electronAPI.saveProject(payload, defaultName);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function addBlankTab() {
@@ -124,8 +139,20 @@ export default function Sidebar() {
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <button onClick={pasteFromClipboard} title="Paste from clipboard (Ctrl+V)">Paste</button>
-        <button onClick={openFile} title="Open image file">Open</button>
+        <button onClick={handleOpenProject} disabled={opening} title="Open project (.ipaint)">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: -2 }}>
+            <path d="M1 4.5A1.5 1.5 0 0 1 2.5 3h3l1.5 1.5H12A1.5 1.5 0 0 1 13.5 6v5A1.5 1.5 0 0 1 12 12.5H2.5A1.5 1.5 0 0 1 1 11V4.5z" />
+          </svg>
+          {' '}{opening ? 'Opening…' : 'Open'}
+        </button>
+        <button onClick={handleSaveProject} disabled={saving || state.tabs.length === 0} title="Save project (.ipaint)">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: -2 }}>
+            <rect x="1" y="1" width="12" height="12" rx="1.5" />
+            <path d="M4 1v4h6V1" />
+            <rect x="4.5" y="7.5" width="5" height="4" rx="0.5" />
+          </svg>
+          {' '}{saving ? 'Saving…' : 'Save'}
+        </button>
       </div>
       <div className="tab-list">
         {state.tabs.length === 0 && (

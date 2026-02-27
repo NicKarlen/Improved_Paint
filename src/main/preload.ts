@@ -11,4 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Record<string, unknown>) =>
     ipcRenderer.invoke('settings:save', settings),
+  saveProjectToFolder: (folderPath: string, payload: string, fileName: string) =>
+    ipcRenderer.invoke('project:save-to-folder', folderPath, payload, fileName),
+  openProject: () => ipcRenderer.invoke('project:open'),
+  saveProject: (payload: string, defaultName: string) =>
+    ipcRenderer.invoke('project:save', payload, defaultName),
 });

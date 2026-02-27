@@ -83,6 +83,26 @@ export type ProfileSettings = Pick<AppSettings,
   | 'watermarkEnabled' | 'watermarkDataURL' | 'watermarkSize'
 >;
 
+export const IPAINT_VERSION = 1;
+
+export interface ProjectTab {
+  id: string;
+  name: string;
+  imageDataURL: string;
+  thumbnail: string;
+  stepIndicators: StepIndicator[];
+  shapes: Shape[];
+  textAnnotations: TextAnnotation[];
+  nextStepNumber: number;
+}
+
+export interface ProjectFile {
+  version: number;
+  savedAt: string;
+  activeTabId: string | null;
+  tabs: ProjectTab[];
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   stepSize: 28,
   shapeColor: '#ef4444',

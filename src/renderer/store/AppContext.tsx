@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { Tab, StepIndicator, Shape, TextAnnotation, AppSettings, DEFAULT_SETTINGS } from '../../shared/types';
+import { Tab, StepIndicator, Shape, TextAnnotation, AppSettings, DEFAULT_SETTINGS, ProjectFile, IPAINT_VERSION } from '../../shared/types';
 
 export type ToolType = 'select' | 'step' | 'rect' | 'arrow' | 'crop' | 'blur' | 'text';
 
@@ -57,7 +57,8 @@ type Action =
   | { type: 'CROP_IMAGE'; tabId: string; imageDataURL: string; thumbnail: string }
   | { type: 'COMMIT_IMAGE_CHANGE'; tabId: string; imageDataURL: string; thumbnail: string }
   | { type: 'DUPLICATE_TAB'; sourceTabId: string; newTab: Tab }
-  | { type: 'SET_SELECTION'; id: string | null; kind: 'step' | 'shape' | 'text' | null };
+  | { type: 'SET_SELECTION'; id: string | null; kind: 'step' | 'shape' | 'text' | null }
+  | { type: 'LOAD_PROJECT'; project: ProjectFile };
 
 const MAX_HISTORY = 50;
 
@@ -96,6 +97,24 @@ function pushUndo(state: State, tabId: string): Record<string, TabHistory> {
       undoStack: [...hist.undoStack.slice(-MAX_HISTORY + 1), current],
       redoStack: [], // new action clears redo
     },
+  };
+}
+
+export function serializeProject(state: State): ProjectFile {
+  return {
+    version: IPAINT_VERSION,
+    savedAt: new Date().toISOString(),
+    activeTabId: state.activeTabId,
+    tabs: state.tabs.map(tab => ({
+      id: tab.id,
+      name: tab.name,
+      imageDataURL: tab.imageDataURL,
+      thumbnail: tab.thumbnail,
+      stepIndicators: state.stepIndicators[tab.id] || [],
+      shapes: state.shapes[tab.id] || [],
+      textAnnotations: state.textAnnotations[tab.id] || [],
+      nextStepNumber: state.nextStepNumber[tab.id] || 1,
+    })),
   };
 }
 
@@ -359,6 +378,34 @@ function reducer(state: State, action: Action): State {
       tabs.splice(action.toIndex, 0, moved);
       return { ...state, tabs };
     }
+
+    case 'LOAD_PROJECT': {
+      const { project } = action;
+      const tabs = project.tabs.map(pt => ({
+        id: pt.id, name: pt.name,
+        imageDataURL: pt.imageDataURL, thumbnail: pt.thumbnail,
+      }));
+      const si: Record<string, StepIndicator[]> = {};
+      const sh: Record<string, Shape[]> = {};
+      const ta: Record<string, TextAnnotation[]> = {};
+      const hist: Record<string, TabHistory> = {};
+      const ns: Record<string, number> = {};
+      for (const pt of project.tabs) {
+        si[pt.id] = pt.stepIndicators;
+        sh[pt.id] = pt.shapes;
+        ta[pt.id] = pt.textAnnotations;
+        hist[pt.id] = { undoStack: [], redoStack: [] };
+        ns[pt.id] = pt.nextStepNumber;
+      }
+      return {
+        ...state,
+        tabs, activeTabId: project.activeTabId,
+        stepIndicators: si, shapes: sh, textAnnotations: ta,
+        history: hist, nextStepNumber: ns,
+        selectedId: null, selectedKind: null, tool: 'select',
+      };
+    }
+
     default:
       return state;
   }

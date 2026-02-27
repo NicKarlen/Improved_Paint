@@ -59,17 +59,49 @@ ipcMain.handle('settings:save', (_event, settings: Record<string, unknown>) => {
 
 // IPC: Save multiple files to a chosen directory
 ipcMain.handle('dialog:save-files', async (_event, files: { name: string; dataURL: string }[]) => {
-  if (!mainWindow || files.length === 0) return false;
+  if (!mainWindow || files.length === 0) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
     title: 'Choose folder to export all images',
   });
-  if (result.canceled || result.filePaths.length === 0) return false;
+  if (result.canceled || result.filePaths.length === 0) return null;
   const dir = result.filePaths[0];
   for (const file of files) {
     const base64 = file.dataURL.replace(/^data:image\/\w+;base64,/, '');
     fs.writeFileSync(path.join(dir, file.name), Buffer.from(base64, 'base64'));
   }
+  return dir;
+});
+
+ipcMain.handle('project:save-to-folder', async (_event, folderPath: string, payload: string, fileName: string) => {
+  const ipaintsDir = path.join(folderPath, 'ipaints');
+  if (!fs.existsSync(ipaintsDir)) fs.mkdirSync(ipaintsDir);
+  const safeName = fileName.replace(/\.[^.]+$/, '').replace(/\s+(nr\s*)?\d+\s*$/i, '').replace(/[<>:"/\\|?*]/g, '_') || 'project';
+  fs.writeFileSync(path.join(ipaintsDir, `${safeName}.ipaint`), payload, 'utf-8');
+});
+
+ipcMain.handle('project:open', async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Open Project',
+    filters: [{ name: 'Improved Paint Project', extensions: ['ipaint'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  try { return fs.readFileSync(result.filePaths[0], 'utf-8'); }
+  catch { return null; }
+});
+
+ipcMain.handle('project:save', async (_event, payload: string, defaultName: string) => {
+  if (!mainWindow) return false;
+  const safeName = defaultName.replace(/\.[^.]+$/, '').replace(/\s+(nr\s*)?\d+\s*$/i, '').replace(/[<>:"/\\|?*]/g, '_') || 'project';
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Project',
+    defaultPath: `${safeName}.ipaint`,
+    filters: [{ name: 'Improved Paint Project', extensions: ['ipaint'] }],
+  });
+  if (result.canceled || !result.filePath) return false;
+  fs.writeFileSync(result.filePath, payload, 'utf-8');
   return true;
 });
 
@@ -121,8 +153,8 @@ ipcMain.handle('dialog:save-file', async (_event, dataURL: string, defaultName: 
     defaultPath: defaultName,
     filters,
   });
-  if (result.canceled || !result.filePath) return false;
+  if (result.canceled || !result.filePath) return null;
   const base64 = dataURL.replace(/^data:image\/\w+;base64,/, '');
   fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
-  return true;
+  return result.filePath;
 });
