@@ -16,4 +16,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openProject: () => ipcRenderer.invoke('project:open'),
   saveProject: (payload: string, defaultName: string) =>
     ipcRenderer.invoke('project:save', payload, defaultName),
+  openFolder: (folderPath: string) =>
+    ipcRenderer.invoke('shell:open-folder', folderPath),
 });

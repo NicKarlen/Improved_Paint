@@ -12,6 +12,10 @@ export default function Toolbar() {
   const [simplifyStatus, setSimplifyStatus] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [exportToast, setExportToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -52,7 +56,7 @@ export default function Toolbar() {
       const shapes = state.shapes[activeTab.id] || [];
       const texts = state.textAnnotations[activeTab.id] || [];
       const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled } = state.settings;
-      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
+      const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null, state.drawOrder[activeTab.id] || undefined);
       await window.electronAPI.writeClipboardImage(dataURL);
     } finally {
       setCopying(false);
@@ -117,7 +121,7 @@ export default function Toolbar() {
         const indicators = state.stepIndicators[tab.id] || [];
         const shapes = state.shapes[tab.id] || [];
         const texts = state.textAnnotations[tab.id] || [];
-        let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkDataURL, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
+        let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkDataURL, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null, state.drawOrder[tab.id] || undefined);
 
         if (exportFormat !== 'png') {
           const img = new Image();
@@ -138,6 +142,9 @@ export default function Toolbar() {
         const payload = JSON.stringify(serializeProject(state));
         const firstName = state.tabs[0].name;
         await window.electronAPI.saveProjectToFolder(exportFolder, payload, firstName);
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setExportToast(exportFolder);
+        toastTimerRef.current = setTimeout(() => setExportToast(null), 6000);
       }
     } finally {
       setExporting(false);
@@ -660,6 +667,24 @@ export default function Toolbar() {
       )}
 
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
+
+      {exportToast && (
+        <div className="export-toast" onClick={() => window.electronAPI.openFolder(exportToast)}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M1 4.5h12v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-7Z" />
+            <path d="M1 4.5l1.5-3h4l1.5 3" />
+          </svg>
+          <span>
+            Exported to <strong>{exportToast.split(/[\\/]/).pop()}</strong>
+            <span className="toast-hint"> — click to open</span>
+          </span>
+          <button
+            className="toast-close"
+            onClick={e => { e.stopPropagation(); setExportToast(null); }}
+            title="Dismiss"
+          >×</button>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ interface ElectronAPI {
   saveProjectToFolder: (folderPath: string, payload: string, fileName: string) => Promise<void>;
   openProject: () => Promise<string | null>;
   saveProject: (payload: string, defaultName: string) => Promise<boolean>;
+  openFolder: (folderPath: string) => Promise<void>;
 }
 
 declare global {

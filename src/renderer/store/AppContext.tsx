@@ -9,6 +9,7 @@ interface AnnotationSnapshot {
   shapes: Shape[];
   textAnnotations: TextAnnotation[];
   nextStepNumber: number;
+  drawOrder: string[];
   imageDataURL?: string; // stored only for destructive ops like crop
   thumbnail?: string;
 }
@@ -25,6 +26,7 @@ interface State {
   stepIndicators: Record<string, StepIndicator[]>;
   shapes: Record<string, Shape[]>;
   textAnnotations: Record<string, TextAnnotation[]>;
+  drawOrder: Record<string, string[]>;
   history: Record<string, TabHistory>;
   tool: ToolType;
   stepStyle: 'decimal' | 'roman';
@@ -58,7 +60,9 @@ type Action =
   | { type: 'COMMIT_IMAGE_CHANGE'; tabId: string; imageDataURL: string; thumbnail: string }
   | { type: 'DUPLICATE_TAB'; sourceTabId: string; newTab: Tab }
   | { type: 'SET_SELECTION'; id: string | null; kind: 'step' | 'shape' | 'text' | null }
-  | { type: 'LOAD_PROJECT'; project: ProjectFile };
+  | { type: 'LOAD_PROJECT'; project: ProjectFile }
+  | { type: 'BATCH_MOVE'; tabId: string; steps: { id: string; x: number; y: number }[]; shapes: { id: string; x1: number; y1: number; x2: number; y2: number }[]; texts: { id: string; x: number; y: number }[] }
+  | { type: 'REORDER_ANNOTATION'; tabId: string; annotationId: string; direction: 'front' | 'back' };
 
 const MAX_HISTORY = 50;
 
@@ -69,6 +73,7 @@ const initialState: State = {
   stepIndicators: {},
   shapes: {},
   textAnnotations: {},
+  drawOrder: {},
   history: {},
   tool: 'select',
   stepStyle: 'decimal',
@@ -84,6 +89,7 @@ function snapshot(state: State, tabId: string): AnnotationSnapshot {
     shapes: state.shapes[tabId] || [],
     textAnnotations: state.textAnnotations[tabId] || [],
     nextStepNumber: state.nextStepNumber[tabId] || 1,
+    drawOrder: state.drawOrder[tabId] || [],
   };
 }
 
@@ -114,6 +120,7 @@ export function serializeProject(state: State): ProjectFile {
       shapes: state.shapes[tab.id] || [],
       textAnnotations: state.textAnnotations[tab.id] || [],
       nextStepNumber: state.nextStepNumber[tab.id] || 1,
+      drawOrder: state.drawOrder[tab.id] || [],
     })),
   };
 }
@@ -128,6 +135,7 @@ function reducer(state: State, action: Action): State {
         stepIndicators: { ...state.stepIndicators, [action.tab.id]: [] },
         shapes: { ...state.shapes, [action.tab.id]: [] },
         textAnnotations: { ...state.textAnnotations, [action.tab.id]: [] },
+        drawOrder: { ...state.drawOrder, [action.tab.id]: [] },
         history: { ...state.history, [action.tab.id]: { undoStack: [], redoStack: [] } },
         nextStepNumber: { ...state.nextStepNumber, [action.tab.id]: 1 },
       };
@@ -136,6 +144,7 @@ function reducer(state: State, action: Action): State {
       const { [action.id]: _s, ...stepIndicators } = state.stepIndicators;
       const { [action.id]: _sh, ...shapes } = state.shapes;
       const { [action.id]: _ta, ...textAnnotations } = state.textAnnotations;
+      const { [action.id]: _do, ...drawOrder } = state.drawOrder;
       const { [action.id]: _h, ...history } = state.history;
       const { [action.id]: _n, ...nextStepNumber } = state.nextStepNumber;
       let activeTabId = state.activeTabId;
@@ -143,7 +152,7 @@ function reducer(state: State, action: Action): State {
         const idx = state.tabs.findIndex(t => t.id === action.id);
         activeTabId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
       }
-      return { ...state, tabs, activeTabId, stepIndicators, shapes, textAnnotations, history, nextStepNumber };
+      return { ...state, tabs, activeTabId, stepIndicators, shapes, textAnnotations, drawOrder, history, nextStepNumber };
     }
     case 'SET_ACTIVE_TAB':
       return { ...state, activeTabId: action.id, selectedId: null, selectedKind: null };
@@ -178,6 +187,7 @@ function reducer(state: State, action: Action): State {
         history,
         stepIndicators: { ...state.stepIndicators, [action.tabId]: [...existing, action.indicator] },
         nextStepNumber: { ...state.nextStepNumber, [action.tabId]: (state.nextStepNumber[action.tabId] || 1) + 1 },
+        drawOrder: { ...state.drawOrder, [action.tabId]: [...(state.drawOrder[action.tabId] || []), action.indicator.id] },
       };
     }
     case 'ADD_SHAPE': {
@@ -187,6 +197,7 @@ function reducer(state: State, action: Action): State {
         ...state,
         history,
         shapes: { ...state.shapes, [action.tabId]: [...existing, action.shape] },
+        drawOrder: { ...state.drawOrder, [action.tabId]: [...(state.drawOrder[action.tabId] || []), action.shape.id] },
       };
     }
     case 'ADD_SHAPES': {
@@ -196,6 +207,7 @@ function reducer(state: State, action: Action): State {
         ...state,
         history,
         shapes: { ...state.shapes, [action.tabId]: [...existing, ...action.shapes] },
+        drawOrder: { ...state.drawOrder, [action.tabId]: [...(state.drawOrder[action.tabId] || []), ...action.shapes.map(s => s.id)] },
       };
     }
     case 'ADD_TEXT_ANNOTATION': {
@@ -205,6 +217,7 @@ function reducer(state: State, action: Action): State {
         ...state,
         history,
         textAnnotations: { ...state.textAnnotations, [action.tabId]: [...existing, action.annotation] },
+        drawOrder: { ...state.drawOrder, [action.tabId]: [...(state.drawOrder[action.tabId] || []), action.annotation.id] },
       };
     }
     case 'UPDATE_TEXT_ANNOTATION': {
@@ -243,6 +256,7 @@ function reducer(state: State, action: Action): State {
         shapes: { ...state.shapes, [action.tabId]: shapes },
         textAnnotations: { ...state.textAnnotations, [action.tabId]: texts },
         nextStepNumber: { ...state.nextStepNumber, [action.tabId]: wasStep ? Math.max(1, currentNum - 1) : currentNum },
+        drawOrder: { ...state.drawOrder, [action.tabId]: (state.drawOrder[action.tabId] || []).filter(id => id !== action.annotationId) },
       };
     }
 
@@ -262,6 +276,7 @@ function reducer(state: State, action: Action): State {
         shapes: { ...state.shapes, [action.tabId]: [] },
         textAnnotations: { ...state.textAnnotations, [action.tabId]: [] },
         nextStepNumber: { ...state.nextStepNumber, [action.tabId]: 1 },
+        drawOrder: { ...state.drawOrder, [action.tabId]: [] },
         history: {
           ...state.history,
           [action.tabId]: {
@@ -305,6 +320,7 @@ function reducer(state: State, action: Action): State {
         stepIndicators: { ...state.stepIndicators, [newId]: [...(state.stepIndicators[action.sourceTabId] || [])] },
         shapes: { ...state.shapes, [newId]: [...(state.shapes[action.sourceTabId] || [])] },
         textAnnotations: { ...state.textAnnotations, [newId]: [...(state.textAnnotations[action.sourceTabId] || [])] },
+        drawOrder: { ...state.drawOrder, [newId]: [...(state.drawOrder[action.sourceTabId] || [])] },
         history: { ...state.history, [newId]: { undoStack: [], redoStack: [] } },
         nextStepNumber: { ...state.nextStepNumber, [newId]: state.nextStepNumber[action.sourceTabId] || 1 },
       };
@@ -325,6 +341,7 @@ function reducer(state: State, action: Action): State {
         shapes: { ...state.shapes, [action.tabId]: prev.shapes },
         textAnnotations: { ...state.textAnnotations, [action.tabId]: prev.textAnnotations },
         nextStepNumber: { ...state.nextStepNumber, [action.tabId]: prev.nextStepNumber },
+        drawOrder: { ...state.drawOrder, [action.tabId]: prev.drawOrder || [] },
         history: {
           ...state.history,
           [action.tabId]: {
@@ -356,6 +373,7 @@ function reducer(state: State, action: Action): State {
         shapes: { ...state.shapes, [action.tabId]: next.shapes },
         textAnnotations: { ...state.textAnnotations, [action.tabId]: next.textAnnotations },
         nextStepNumber: { ...state.nextStepNumber, [action.tabId]: next.nextStepNumber },
+        drawOrder: { ...state.drawOrder, [action.tabId]: next.drawOrder || [] },
         history: {
           ...state.history,
           [action.tabId]: {
@@ -390,19 +408,64 @@ function reducer(state: State, action: Action): State {
       const ta: Record<string, TextAnnotation[]> = {};
       const hist: Record<string, TabHistory> = {};
       const ns: Record<string, number> = {};
+      const do_: Record<string, string[]> = {};
       for (const pt of project.tabs) {
         si[pt.id] = pt.stepIndicators;
         sh[pt.id] = pt.shapes;
         ta[pt.id] = pt.textAnnotations;
         hist[pt.id] = { undoStack: [], redoStack: [] };
         ns[pt.id] = pt.nextStepNumber;
+        // backwards compat: reconstruct drawOrder from type arrays if not stored
+        do_[pt.id] = pt.drawOrder || [
+          ...pt.shapes.filter(s => s.type === 'blur').map(s => s.id),
+          ...pt.shapes.filter(s => s.type !== 'blur').map(s => s.id),
+          ...pt.stepIndicators.map(s => s.id),
+          ...pt.textAnnotations.map(t => t.id),
+        ];
       }
       return {
         ...state,
         tabs, activeTabId: project.activeTabId,
         stepIndicators: si, shapes: sh, textAnnotations: ta,
-        history: hist, nextStepNumber: ns,
+        drawOrder: do_, history: hist, nextStepNumber: ns,
         selectedId: null, selectedKind: null, tool: 'select',
+      };
+    }
+
+    case 'BATCH_MOVE': {
+      const history = pushUndo(state, action.tabId);
+      const stepsMap = new Map(action.steps.map(s => [s.id, s]));
+      const shapesMap = new Map(action.shapes.map(s => [s.id, s]));
+      const textsMap = new Map(action.texts.map(t => [t.id, t]));
+      const steps = (state.stepIndicators[action.tabId] || []).map(s =>
+        stepsMap.has(s.id) ? { ...s, ...stepsMap.get(s.id) } : s
+      );
+      const shapes = (state.shapes[action.tabId] || []).map(s =>
+        shapesMap.has(s.id) ? { ...s, ...shapesMap.get(s.id) } : s
+      );
+      const texts = (state.textAnnotations[action.tabId] || []).map(t =>
+        textsMap.has(t.id) ? { ...t, ...textsMap.get(t.id) } : t
+      );
+      return {
+        ...state, history,
+        stepIndicators: { ...state.stepIndicators, [action.tabId]: steps },
+        shapes: { ...state.shapes, [action.tabId]: shapes },
+        textAnnotations: { ...state.textAnnotations, [action.tabId]: texts },
+      };
+    }
+
+    case 'REORDER_ANNOTATION': {
+      const history = pushUndo(state, action.tabId);
+      const arr = state.drawOrder[action.tabId] || [];
+      const idx = arr.indexOf(action.annotationId);
+      if (idx < 0) return { ...state, history };
+      const copy = [...arr];
+      const [item] = copy.splice(idx, 1);
+      if (action.direction === 'front') copy.push(item);
+      else copy.unshift(item);
+      return {
+        ...state, history,
+        drawOrder: { ...state.drawOrder, [action.tabId]: copy },
       };
     }
 

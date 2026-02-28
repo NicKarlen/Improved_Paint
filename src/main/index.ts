@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, clipboard, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -158,4 +158,8 @@ ipcMain.handle('dialog:save-file', async (_event, dataURL: string, defaultName: 
   const base64 = dataURL.replace(/^data:image\/[\w+]+;base64,/, '');
   fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
   return result.filePath;
+});
+
+ipcMain.handle('shell:open-folder', (_event, folderPath: string) => {
+  shell.openPath(folderPath);
 });

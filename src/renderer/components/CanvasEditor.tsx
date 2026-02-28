@@ -79,10 +79,29 @@ export default function CanvasEditor() {
   const dragTargetRef = useRef<DragTarget | null>(null);
   const isDraggingAnnotationRef = useRef(false);
 
+  // Multi-select state
+  const [multiIds, setMultiIds] = useState<string[]>([]);
+  const multiIdsRef = useRef<string[]>([]);
+  multiIdsRef.current = multiIds;
+  const [rubberBand, setRubberBand] = useState<DrawingShape | null>(null);
+  const isRubberBandingRef = useRef(false);
+
+  interface MultiDragItem {
+    kind: 'step' | 'shape' | 'text';
+    id: string;
+    ox: number; oy: number;
+    ox1?: number; oy1?: number; ox2?: number; oy2?: number;
+  }
+  const multiDragRef = useRef<{ startX: number; startY: number; items: MultiDragItem[] } | null>(null);
+
+  // Context menu for z-ordering
+  const [contextMenu, setContextMenu] = useState<{ screenX: number; screenY: number; annotId: string } | null>(null);
+
   const activeTab = state.tabs.find(t => t.id === state.activeTabId);
   const indicators = activeTab ? (state.stepIndicators[activeTab.id] || []) : [];
   const shapes = activeTab ? (state.shapes[activeTab.id] || []) : [];
   const textAnnotations = activeTab ? (state.textAnnotations[activeTab.id] || []) : [];
+  const drawOrder = activeTab ? (state.drawOrder[activeTab.id] || null) : null;
   const { stepSize, shapeColor, shapeStrokeWidth, shapeFilled, arrowChevrons, rectMode, watermarkDataURL: rawWatermarkDataURL, watermarkSize, watermarkEnabled, blurStrength, textFontSize, beautifyEnabled, beautifyPadding, beautifyCornerRadius, beautifyShadow, beautifyBgType, beautifyBgColor1, beautifyBgColor2, beautifyGradientAngle, beautifyOuterRadius, canvasFrameEnabled, canvasFrameWidth, canvasFrameHeight, canvasFrameBgColor } = state.settings;
   const watermarkDataURL = watermarkEnabled ? rawWatermarkDataURL : null;
   const bPad = beautifyEnabled ? beautifyPadding : 0;
@@ -96,12 +115,17 @@ export default function CanvasEditor() {
     setDrawingShape(null);
     setCropRegion(null);
     setTextInput(null);
+    setMultiIds([]);
+    setContextMenu(null);
     dispatch({ type: 'SET_SELECTION', id: null, kind: null });
   }, [state.activeTabId]);
 
   // Clear selection when switching tools
   useEffect(() => {
-    if (state.tool !== 'select') dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+    if (state.tool !== 'select') {
+      dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+      setMultiIds([]);
+    }
   }, [state.tool]);
 
   // Load watermark
@@ -212,16 +236,51 @@ export default function CanvasEditor() {
     drawScaledImage(ctx, img, effScale);
     ctx.restore();
 
-    // Draw blur shapes first (they need underlying pixels)
-    for (const s of shapes) {
-      if (s.type === 'blur') {
-        renderBlurShape(ctx, {
-          ...s,
-          x1: s.x1 + offX, y1: s.y1 + offY,
-          x2: s.x2 + offX, y2: s.y2 + offY,
-        }, effScale);
+    // Draw annotations in drawOrder (blurs pixelate whatever is rendered before them)
+    if (drawOrder && drawOrder.length > 0) {
+      const shapeMap = new Map(shapes.map(s => [s.id, s]));
+      const indicatorMap = new Map(indicators.map(i => [i.id, i]));
+      const textMap = new Map(textAnnotations.map(t => [t.id, t]));
+      for (const id of drawOrder) {
+        const s = shapeMap.get(id);
+        if (s) {
+          const shifted = { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY };
+          s.type === 'blur' ? renderBlurShape(ctx, shifted, effScale) : renderShape(ctx, shifted, effScale);
+          continue;
+        }
+        const ind = indicatorMap.get(id);
+        if (ind) {
+          renderStepIndicator(ctx, { ...ind, x: ind.x + offX, y: ind.y + offY }, effScale, stepSize, ind.color);
+          continue;
+        }
+        const ta = textMap.get(id);
+        if (ta && ta.id !== editingIdRef.current) {
+          renderTextAnnotation(ctx, { ...ta, x: ta.x + offX, y: ta.y + offY }, effScale);
+        }
+      }
+    } else {
+      // Fallback: blurs → shapes → steps → texts
+      for (const s of shapes) {
+        if (s.type === 'blur') {
+          renderBlurShape(ctx, { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY }, effScale);
+        }
+      }
+      for (const s of shapes) {
+        if (s.type !== 'blur') {
+          renderShape(ctx, { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY }, effScale);
+        }
+      }
+      for (const ind of indicators) {
+        renderStepIndicator(ctx, { ...ind, x: ind.x + offX, y: ind.y + offY }, effScale, stepSize, ind.color);
+      }
+      for (const ta of textAnnotations) {
+        if (ta.id !== editingIdRef.current) {
+          renderTextAnnotation(ctx, { ...ta, x: ta.x + offX, y: ta.y + offY }, effScale);
+        }
       }
     }
+
+    // Draw preview shape on top
     if (previewShape && previewShape.type === 'blur') {
       renderBlurShape(ctx, {
         ...previewShape,
@@ -229,44 +288,12 @@ export default function CanvasEditor() {
         x2: previewShape.x2 + offX, y2: previewShape.y2 + offY,
       }, effScale);
     }
-
-    // Draw non-blur shapes
-    for (const s of shapes) {
-      if (s.type !== 'blur') {
-        renderShape(ctx, {
-          ...s,
-          x1: s.x1 + offX, y1: s.y1 + offY,
-          x2: s.x2 + offX, y2: s.y2 + offY,
-        }, effScale);
-      }
-    }
     if (previewShape && previewShape.type !== 'blur') {
       renderShape(ctx, {
         ...previewShape,
         x1: previewShape.x1 + offX, y1: previewShape.y1 + offY,
         x2: previewShape.x2 + offX, y2: previewShape.y2 + offY,
       }, effScale);
-    }
-
-    // Draw step indicators
-    for (const ind of indicators) {
-      renderStepIndicator(
-        ctx,
-        { ...ind, x: ind.x + offX, y: ind.y + offY },
-        effScale,
-        stepSize,
-        ind.color
-      );
-    }
-
-    // Draw text annotations (skip the one currently being edited)
-    for (const ta of textAnnotations) {
-      if (ta.id === editingIdRef.current) continue;
-      renderTextAnnotation(
-        ctx,
-        { ...ta, x: ta.x + offX, y: ta.y + offY },
-        effScale
-      );
     }
 
     // Draw watermark in corner of the frame (or image when frame is off)
@@ -364,21 +391,39 @@ export default function CanvasEditor() {
       ctx.translate((frameOx + bPad) * renderScale, (frameOy + bPad) * renderScale);
       drawScaledImage(ctx, img, effScale);
       ctx.restore();
-      for (const s of shapes) {
-        if (s.type === 'blur') {
-          renderBlurShape(ctx, { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY }, effScale);
+      if (drawOrder && drawOrder.length > 0) {
+        const shapeMap = new Map(shapes.map(s => [s.id, s]));
+        const indicatorMap = new Map(indicators.map(i => [i.id, i]));
+        const textMap = new Map(textAnnotations.map(t => [t.id, t]));
+        for (const id of drawOrder) {
+          const s = shapeMap.get(id);
+          if (s) {
+            const shifted = { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY };
+            s.type === 'blur' ? renderBlurShape(ctx, shifted, effScale) : renderShape(ctx, shifted, effScale);
+            continue;
+          }
+          const ind = indicatorMap.get(id);
+          if (ind) { renderStepIndicator(ctx, { ...ind, x: ind.x + offX, y: ind.y + offY }, effScale, stepSize, ind.color); continue; }
+          const ta = textMap.get(id);
+          if (ta) renderTextAnnotation(ctx, { ...ta, x: ta.x + offX, y: ta.y + offY }, effScale);
         }
-      }
-      for (const s of shapes) {
-        if (s.type !== 'blur') {
-          renderShape(ctx, { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY }, effScale);
+      } else {
+        for (const s of shapes) {
+          if (s.type === 'blur') {
+            renderBlurShape(ctx, { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY }, effScale);
+          }
         }
-      }
-      for (const ind of indicators) {
-        renderStepIndicator(ctx, { ...ind, x: ind.x + offX, y: ind.y + offY }, effScale, stepSize, ind.color);
-      }
-      for (const ta of textAnnotations) {
-        renderTextAnnotation(ctx, { ...ta, x: ta.x + offX, y: ta.y + offY }, effScale);
+        for (const s of shapes) {
+          if (s.type !== 'blur') {
+            renderShape(ctx, { ...s, x1: s.x1 + offX, y1: s.y1 + offY, x2: s.x2 + offX, y2: s.y2 + offY }, effScale);
+          }
+        }
+        for (const ind of indicators) {
+          renderStepIndicator(ctx, { ...ind, x: ind.x + offX, y: ind.y + offY }, effScale, stepSize, ind.color);
+        }
+        for (const ta of textAnnotations) {
+          renderTextAnnotation(ctx, { ...ta, x: ta.x + offX, y: ta.y + offY }, effScale);
+        }
       }
       // Re-dim outside crop
       ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
@@ -462,7 +507,74 @@ export default function CanvasEditor() {
 
       ctx.restore();
     }
-  }, [indicators, shapes, textAnnotations, zoom, isFitMode, stepSize, watermarkSize, watermarkImg, overlay, overlayCropMode, overlayCropRegion, previewShape, cropRegion, selectedId, state.tool, beautifyEnabled, bPad, beautifyCornerRadius, beautifyShadow, beautifyBgType, beautifyBgColor1, beautifyBgColor2, beautifyGradientAngle, beautifyOuterRadius, canvasFrameEnabled, canvasFrameWidth, canvasFrameHeight, canvasFrameBgColor]);
+
+    // Multi-select highlights (plain dashed outline, no resize handles)
+    if (multiIds.length > 1 && state.tool === 'select') {
+      ctx.save();
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+
+      for (const id of multiIds) {
+        if (id === selectedId) continue; // already drawn with handles above
+
+        for (const ind of indicators) {
+          if (ind.id !== id) continue;
+          const sx = (ind.x + offX) * effScale;
+          const sy = (ind.y + offY) * effScale;
+          const sr = (stepSize / 2 + 4) * effScale;
+          ctx.beginPath();
+          ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        for (const s of shapes) {
+          if (s.id !== id) continue;
+          if (s.type === 'arrow') {
+            const ax1 = (s.x1 + offX) * effScale;
+            const ay1 = (s.y1 + offY) * effScale;
+            const ax2 = (s.x2 + offX) * effScale;
+            const ay2 = (s.y2 + offY) * effScale;
+            ctx.beginPath();
+            ctx.moveTo(ax1, ay1);
+            ctx.lineTo(ax2, ay2);
+            ctx.stroke();
+          } else {
+            const sx1 = (Math.min(s.x1, s.x2) + offX) * effScale;
+            const sy1 = (Math.min(s.y1, s.y2) + offY) * effScale;
+            const sw = Math.abs(s.x2 - s.x1) * effScale;
+            const sh = Math.abs(s.y2 - s.y1) * effScale;
+            ctx.strokeRect(sx1 - 2, sy1 - 2, sw + 4, sh + 4);
+          }
+        }
+
+        for (const ta of textAnnotations) {
+          if (ta.id !== id) continue;
+          const dims = measureTextAnnotation(ctx, ta.text, ta.fontSize, effScale);
+          const tx = (ta.x + offX) * effScale;
+          const ty = (ta.y + offY) * effScale;
+          ctx.strokeRect(tx - 2, ty - 2, dims.width + 4, dims.height + 4);
+        }
+      }
+      ctx.restore();
+    }
+
+    // Rubber-band selection rectangle
+    if (rubberBand) {
+      const rbx = (Math.min(rubberBand.x1, rubberBand.x2) + offX) * effScale;
+      const rby = (Math.min(rubberBand.y1, rubberBand.y2) + offY) * effScale;
+      const rbw = Math.abs(rubberBand.x2 - rubberBand.x1) * effScale;
+      const rbh = Math.abs(rubberBand.y2 - rubberBand.y1) * effScale;
+      ctx.save();
+      ctx.fillStyle = 'rgba(14, 165, 233, 0.08)';
+      ctx.fillRect(rbx, rby, rbw, rbh);
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(rbx, rby, rbw, rbh);
+      ctx.restore();
+    }
+  }, [indicators, shapes, textAnnotations, drawOrder, zoom, isFitMode, stepSize, watermarkSize, watermarkImg, overlay, overlayCropMode, overlayCropRegion, previewShape, cropRegion, selectedId, state.tool, multiIds, rubberBand, beautifyEnabled, bPad, beautifyCornerRadius, beautifyShadow, beautifyBgType, beautifyBgColor1, beautifyBgColor2, beautifyGradientAngle, beautifyOuterRadius, canvasFrameEnabled, canvasFrameWidth, canvasFrameHeight, canvasFrameBgColor]);
 
   useEffect(() => {
     if (!activeTab || !activeTab.imageDataURL) { imageRef.current = null; setImageDims(null); return; }
@@ -526,6 +638,14 @@ export default function CanvasEditor() {
       window.removeEventListener('mouseup', handlePanEnd);
     };
   }, []);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!contextMenu) return;
+    function close() { setContextMenu(null); }
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [contextMenu]);
 
   function zoomIn() {
     setIsFitMode(false);
@@ -593,17 +713,31 @@ export default function CanvasEditor() {
     c.width = img.width; c.height = img.height;
     const ctx = c.getContext('2d')!;
     ctx.drawImage(img, 0, 0);
-    for (const s of shapes) {
-      if (s.type === 'blur') renderBlurShape(ctx, s, 1);
-    }
-    for (const s of shapes) {
-      if (s.type !== 'blur') renderShape(ctx, s, 1);
-    }
-    for (const ind of indicators) {
-      renderStepIndicator(ctx, ind, 1, stepSize, ind.color);
-    }
-    for (const ta of textAnnotations) {
-      renderTextAnnotation(ctx, ta, 1);
+    if (drawOrder && drawOrder.length > 0) {
+      const shapeMap = new Map(shapes.map(s => [s.id, s]));
+      const indicatorMap = new Map(indicators.map(i => [i.id, i]));
+      const textMap = new Map(textAnnotations.map(t => [t.id, t]));
+      for (const id of drawOrder) {
+        const s = shapeMap.get(id);
+        if (s) { s.type === 'blur' ? renderBlurShape(ctx, s, 1) : renderShape(ctx, s, 1); continue; }
+        const ind = indicatorMap.get(id);
+        if (ind) { renderStepIndicator(ctx, ind, 1, stepSize, ind.color); continue; }
+        const ta = textMap.get(id);
+        if (ta) renderTextAnnotation(ctx, ta, 1);
+      }
+    } else {
+      for (const s of shapes) {
+        if (s.type === 'blur') renderBlurShape(ctx, s, 1);
+      }
+      for (const s of shapes) {
+        if (s.type !== 'blur') renderShape(ctx, s, 1);
+      }
+      for (const ind of indicators) {
+        renderStepIndicator(ctx, ind, 1, stepSize, ind.color);
+      }
+      for (const ta of textAnnotations) {
+        renderTextAnnotation(ctx, ta, 1);
+      }
     }
 
     const cropped = document.createElement('canvas');
@@ -766,6 +900,49 @@ export default function CanvasEditor() {
     return 'body';
   }
 
+  function findKindById(id: string): 'step' | 'shape' | 'text' | null {
+    if (indicators.find(i => i.id === id)) return 'step';
+    if (shapes.find(s => s.id === id)) return 'shape';
+    if (textAnnotations.find(t => t.id === id)) return 'text';
+    return null;
+  }
+
+  function findAnnotationsInRect(x1: number, y1: number, x2: number, y2: number): string[] {
+    const rx1 = Math.min(x1, x2), rx2 = Math.max(x1, x2);
+    const ry1 = Math.min(y1, y2), ry2 = Math.max(y1, y2);
+    const ids: string[] = [];
+    for (const ind of indicators) {
+      if (ind.x >= rx1 && ind.x <= rx2 && ind.y >= ry1 && ind.y <= ry2) ids.push(ind.id);
+    }
+    for (const s of shapes) {
+      const sx1 = Math.min(s.x1, s.x2), sx2 = Math.max(s.x1, s.x2);
+      const sy1 = Math.min(s.y1, s.y2), sy2 = Math.max(s.y1, s.y2);
+      if (sx1 < rx2 && sx2 > rx1 && sy1 < ry2 && sy2 > ry1) ids.push(s.id);
+    }
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d')!;
+      for (const ta of textAnnotations) {
+        const dims = measureTextAnnotation(ctx, ta.text, ta.fontSize, 1);
+        if (ta.x + dims.width >= rx1 && ta.x <= rx2 && ta.y + dims.height >= ry1 && ta.y <= ry2) ids.push(ta.id);
+      }
+    }
+    return ids;
+  }
+
+  function handleContextAction(action: 'front' | 'back' | 'delete') {
+    if (!contextMenu || !activeTab) return;
+    const { annotId } = contextMenu;
+    if (action === 'delete') {
+      if (selectedId === annotId) dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+      setMultiIds(prev => prev.filter(id => id !== annotId));
+      dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: annotId });
+    } else {
+      dispatch({ type: 'REORDER_ANNOTATION', tabId: activeTab.id, annotationId: annotId, direction: action });
+    }
+    setContextMenu(null);
+  }
+
   // ── Mouse handlers ──
 
   function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -860,10 +1037,48 @@ export default function CanvasEditor() {
       }
     }
 
-    // Select mode: pick up annotation to move/resize
+    // Select mode: pick up annotation to move/resize, or rubber-band
     if (state.tool === 'select') {
       const hit = findAnnotationAt(x, y);
+      const isAdditive = e.ctrlKey || e.shiftKey;
+
+      if (isAdditive) {
+        if (hit) {
+          // Toggle clicked annotation in/out of multi-selection
+          const alreadyIn = multiIds.includes(hit.id);
+          const newIds = alreadyIn ? multiIds.filter(id => id !== hit.id) : [...multiIds, hit.id];
+          setMultiIds(newIds);
+          if (newIds.length === 1) {
+            dispatch({ type: 'SET_SELECTION', id: newIds[0], kind: findKindById(newIds[0]) });
+          } else {
+            dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+          }
+        }
+        // Ctrl/Shift on empty canvas: do nothing (rubber-band would replace selection)
+        e.preventDefault();
+        return;
+      }
+
       if (hit) {
+        // Clicking a multi-selected item (> 1 selected) → start multi-drag
+        if (multiIds.includes(hit.id) && multiIds.length > 1) {
+          isDraggingAnnotationRef.current = true;
+          const items: MultiDragItem[] = multiIds.map(id => {
+            const ind = indicators.find(i => i.id === id);
+            if (ind) return { kind: 'step' as const, id, ox: ind.x, oy: ind.y };
+            const s = shapes.find(sh => sh.id === id);
+            if (s) return { kind: 'shape' as const, id, ox: s.x1, oy: s.y1, ox1: s.x1, oy1: s.y1, ox2: s.x2, oy2: s.y2 };
+            const ta = textAnnotations.find(t => t.id === id);
+            if (ta) return { kind: 'text' as const, id, ox: ta.x, oy: ta.y };
+            return null;
+          }).filter(Boolean) as MultiDragItem[];
+          multiDragRef.current = { startX: x, startY: y, items };
+          e.preventDefault();
+          return;
+        }
+
+        // Single-select this annotation
+        setMultiIds([hit.id]);
         dispatch({ type: 'SET_SELECTION', id: hit.id, kind: hit.kind });
         isDraggingAnnotationRef.current = true;
 
@@ -886,9 +1101,36 @@ export default function CanvasEditor() {
         }
         e.preventDefault();
         return;
-      } else {
-        dispatch({ type: 'SET_SELECTION', id: null, kind: null });
       }
+
+      // Click on empty canvas → clear selection and start rubber-band
+      setMultiIds([]);
+      dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+      const startX = x, startY = y;
+      isRubberBandingRef.current = true;
+      setRubberBand({ x1: startX, y1: startY, x2: startX, y2: startY });
+      const rbMove = (ev: MouseEvent) => {
+        const { x: mx, y: my } = toImageCoords(ev);
+        setRubberBand({ x1: startX, y1: startY, x2: mx, y2: my });
+      };
+      const rbUp = (ev: MouseEvent) => {
+        window.removeEventListener('mousemove', rbMove);
+        window.removeEventListener('mouseup', rbUp);
+        isRubberBandingRef.current = false;
+        const { x: mx, y: my } = toImageCoords(ev);
+        const found = findAnnotationsInRect(startX, startY, mx, my);
+        setMultiIds(found);
+        if (found.length === 1) {
+          dispatch({ type: 'SET_SELECTION', id: found[0], kind: findKindById(found[0]) });
+        } else {
+          dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+        }
+        setRubberBand(null);
+      };
+      window.addEventListener('mousemove', rbMove);
+      window.addEventListener('mouseup', rbUp);
+      e.preventDefault();
+      return;
     }
 
     // Start drawing a shape (rect, arrow, blur)
@@ -925,10 +1167,25 @@ export default function CanvasEditor() {
   }
 
   function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (isRubberBandingRef.current) return; // rubber-band uses window listeners
+
     // Overlay drag
     if (overlayDraggingRef.current && overlay) {
       const { x, y } = toImageCoords(e);
       setOverlay(prev => prev ? { ...prev, x: x - dragOffsetRef.current.x, y: y - dragOffsetRef.current.y } : null);
+      return;
+    }
+
+    // Multi-annotation drag
+    if (isDraggingAnnotationRef.current && multiDragRef.current && activeTab) {
+      const { x, y } = toImageCoords(e);
+      const md = multiDragRef.current;
+      const dx = x - md.startX;
+      const dy = y - md.startY;
+      const stepMoves = md.items.filter(i => i.kind === 'step').map(i => ({ id: i.id, x: i.ox + dx, y: i.oy + dy }));
+      const shapeMoves = md.items.filter(i => i.kind === 'shape').map(i => ({ id: i.id, x1: i.ox1! + dx, y1: i.oy1! + dy, x2: i.ox2! + dx, y2: i.oy2! + dy }));
+      const textMoves = md.items.filter(i => i.kind === 'text').map(i => ({ id: i.id, x: i.ox + dx, y: i.oy + dy }));
+      dispatch({ type: 'BATCH_MOVE', tabId: activeTab.id, steps: stepMoves, shapes: shapeMoves, texts: textMoves });
       return;
     }
 
@@ -1019,10 +1276,11 @@ export default function CanvasEditor() {
       return;
     }
 
-    // Finish annotation drag
+    // Finish annotation drag (single or multi)
     if (isDraggingAnnotationRef.current) {
       isDraggingAnnotationRef.current = false;
       dragTargetRef.current = null;
+      multiDragRef.current = null;
       return;
     }
 
@@ -1054,10 +1312,12 @@ export default function CanvasEditor() {
   }
 
   function handleMouseLeave() {
+    if (isRubberBandingRef.current) return; // let rubber-band finish even if mouse leaves canvas
     overlayDraggingRef.current = false;
     if (isDraggingAnnotationRef.current) {
       isDraggingAnnotationRef.current = false;
       dragTargetRef.current = null;
+      multiDragRef.current = null;
     }
     if (isDrawingRef.current) {
       isDrawingRef.current = false;
@@ -1123,7 +1383,7 @@ export default function CanvasEditor() {
     }
   }
 
-  // Right-click: remove nearest annotation
+  // Right-click: show context menu for nearest annotation
   function handleContextMenu(e: React.MouseEvent<HTMLCanvasElement>) {
     e.preventDefault();
     if (!activeTab) return;
@@ -1139,22 +1399,19 @@ export default function CanvasEditor() {
       const dist = distanceToShape(s, x, y);
       if (dist < 20 && (!closest || dist < closest.dist)) closest = { id: s.id, dist };
     }
-    // Text annotations
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d')!;
       for (const ta of textAnnotations) {
         const dims = measureTextAnnotation(ctx, ta.text, ta.fontSize, 1);
         if (x >= ta.x && x <= ta.x + dims.width && y >= ta.y && y <= ta.y + dims.height) {
-          const dist = 0; // inside = highest priority
-          if (!closest || dist < closest.dist) closest = { id: ta.id, dist };
+          if (!closest || 0 < closest.dist) closest = { id: ta.id, dist: 0 };
         }
       }
     }
 
     if (closest) {
-      if (selectedId === closest.id) dispatch({ type: 'SET_SELECTION', id: null, kind: null });
-      dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: closest.id });
+      setContextMenu({ screenX: e.clientX, screenY: e.clientY, annotId: closest.id });
     }
   }
 
@@ -1182,12 +1439,24 @@ export default function CanvasEditor() {
         return;
       }
 
-      // Delete selected annotation
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && activeTab && state.tool === 'select') {
-        e.preventDefault();
-        dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: selectedId });
-        dispatch({ type: 'SET_SELECTION', id: null, kind: null });
-        return;
+      // Delete selected annotation(s)
+      if ((e.key === 'Delete' || e.key === 'Backspace') && activeTab && state.tool === 'select') {
+        const ids = multiIdsRef.current;
+        if (ids.length > 0) {
+          e.preventDefault();
+          for (const id of ids) {
+            dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: id });
+          }
+          dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+          setMultiIds([]);
+          return;
+        }
+        if (selectedId) {
+          e.preventDefault();
+          dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: selectedId });
+          dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+          return;
+        }
       }
 
       // Copy annotation: Ctrl+C (when annotation is selected)
@@ -1257,8 +1526,9 @@ export default function CanvasEditor() {
         const indicators = state.stepIndicators[activeTab.id] || [];
         const shapes = state.shapes[activeTab.id] || [];
         const texts = state.textAnnotations[activeTab.id] || [];
+        const tabDrawOrder = state.drawOrder[activeTab.id] || undefined;
         const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled: we } = state.settings;
-        const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, we ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
+        const dataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, we ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null, tabDrawOrder);
         await window.electronAPI.writeClipboardImage(dataURL);
         return;
       }
@@ -1415,6 +1685,18 @@ export default function CanvasEditor() {
           <button className="primary" onClick={applyCrop}>Apply Crop</button>
           <button onClick={cancelCrop}>Cancel</button>
           <span className="overlay-hint">Enter to apply &middot; Esc to cancel</span>
+        </div>
+      )}
+      {contextMenu && (
+        <div
+          className="canvas-context-menu"
+          style={{ position: 'fixed', left: contextMenu.screenX, top: contextMenu.screenY }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <button onClick={() => handleContextAction('front')}>Bring to front</button>
+          <button onClick={() => handleContextAction('back')}>Send to back</button>
+          <div className="context-menu-divider" />
+          <button className="danger" onClick={() => handleContextAction('delete')}>Delete</button>
         </div>
       )}
       <div className="canvas-status">

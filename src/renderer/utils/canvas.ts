@@ -734,7 +734,8 @@ export async function compositeExport(
   watermarkSize = 24,
   textAnnotations: TextAnnotation[] = [],
   beautifySettings?: AppSettings | null,
-  frameSettings?: AppSettings | null
+  frameSettings?: AppSettings | null,
+  drawOrder?: string[]
 ): Promise<string> {
   const img = await new Promise<HTMLImageElement>((resolve) => {
     const i = new Image();
@@ -749,24 +750,33 @@ export async function compositeExport(
 
   drawScaledImage(ctx, img, 1);
 
-  // Render blur shapes first (they need underlying pixels)
-  for (const s of shapes) {
-    if (s.type === 'blur') {
-      renderBlurShape(ctx, s, 1);
+  if (drawOrder && drawOrder.length > 0) {
+    // Unified pass respecting z-order; blurs pixelate everything drawn before them
+    const shapeMap = new Map(shapes.map(s => [s.id, s]));
+    const indicatorMap = new Map(indicators.map(i => [i.id, i]));
+    const textMap = new Map(textAnnotations.map(t => [t.id, t]));
+    for (const id of drawOrder) {
+      const s = shapeMap.get(id);
+      if (s) { s.type === 'blur' ? renderBlurShape(ctx, s, 1) : renderShape(ctx, s, 1); continue; }
+      const ind = indicatorMap.get(id);
+      if (ind) { renderStepIndicator(ctx, ind, 1, stepSize, ind.color); continue; }
+      const ta = textMap.get(id);
+      if (ta) renderTextAnnotation(ctx, ta, 1);
     }
-  }
-  for (const s of shapes) {
-    if (s.type !== 'blur') {
-      renderShape(ctx, s, 1);
+  } else {
+    // Legacy fallback: blurs → shapes → steps → texts
+    for (const s of shapes) {
+      if (s.type === 'blur') renderBlurShape(ctx, s, 1);
     }
-  }
-
-  for (const ind of indicators) {
-    renderStepIndicator(ctx, ind, 1, stepSize, ind.color);
-  }
-
-  for (const ta of textAnnotations) {
-    renderTextAnnotation(ctx, ta, 1);
+    for (const s of shapes) {
+      if (s.type !== 'blur') renderShape(ctx, s, 1);
+    }
+    for (const ind of indicators) {
+      renderStepIndicator(ctx, ind, 1, stepSize, ind.color);
+    }
+    for (const ta of textAnnotations) {
+      renderTextAnnotation(ctx, ta, 1);
+    }
   }
 
   let result = c.toDataURL('image/png');

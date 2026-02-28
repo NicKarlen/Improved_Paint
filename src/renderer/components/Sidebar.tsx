@@ -169,7 +169,7 @@ export default function Sidebar() {
     const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled, exportFormat, exportQuality } = state.settings;
     const indicators = state.stepIndicators[tab.id] || [];
     const shapes = state.shapes[tab.id] || [];
-    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, [], state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
+    let dataURL = await compositeExport(tab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, [], state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null, state.drawOrder[tab.id] || undefined);
 
     if (exportFormat !== 'png') {
       const img = new Image();

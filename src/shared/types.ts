@@ -94,6 +94,7 @@ export interface ProjectTab {
   shapes: Shape[];
   textAnnotations: TextAnnotation[];
   nextStepNumber: number;
+  drawOrder?: string[]; // render order across all annotation types; optional for backwards compat
 }
 
 export interface ProjectFile {

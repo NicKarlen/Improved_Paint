@@ -20,7 +20,7 @@ export default function ExportDialog({ onClose }: Props) {
     const shapes = state.shapes[activeTab.id] || [];
     const texts = state.textAnnotations[activeTab.id] || [];
     const { stepSize, watermarkDataURL: rawWM, watermarkSize, watermarkEnabled } = state.settings;
-    const finalDataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null);
+    const finalDataURL = await compositeExport(activeTab.imageDataURL, indicators, shapes, stepSize, watermarkEnabled ? rawWM : null, watermarkSize, texts, state.settings.beautifyEnabled ? state.settings : null, state.settings.canvasFrameEnabled ? state.settings : null, state.drawOrder[activeTab.id] || undefined);
 
     let exportURL = finalDataURL;
     if (format !== 'png') {

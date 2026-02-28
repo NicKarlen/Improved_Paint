@@ -823,3 +823,98 @@
 .bulk-rename-chip-more {
   opacity: 0.6;
 }
+
+/* ── Canvas context menu (right-click z-ordering) ── */
+.canvas-context-menu {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  min-width: 148px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.canvas-context-menu button {
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.canvas-context-menu button:hover {
+  background: var(--bg-surface);
+}
+
+.canvas-context-menu button.danger {
+  color: #f87171;
+}
+
+.canvas-context-menu button.danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+
+/* ── Export toast ── */
+.export-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  z-index: 300;
+  font-size: 13px;
+  max-width: 340px;
+  animation: toast-in 0.18s ease;
+}
+
+.export-toast:hover {
+  background: var(--bg-surface);
+}
+
+.export-toast .toast-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.toast-close {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-muted) !important;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px !important;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  color: var(--text) !important;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
