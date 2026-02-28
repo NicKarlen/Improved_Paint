@@ -34,7 +34,7 @@ export function nextTabName(tabs: Tab[], fallback = 'Screenshot'): string {
   return `${first} ${tabs.length + 1}`;
 }
 
-export function fitToCanvasFrame(
+function fitToCanvasFrame(
   dataURL: string, width: number, height: number, bgColor: string
 ): Promise<string> {
   return new Promise((resolve) => {
@@ -669,7 +669,7 @@ export function fillBeautifyBg(
   }
 }
 
-export function applyBeautify(
+function applyBeautify(
   sourceDataURL: string,
   settings: AppSettings
 ): Promise<string> {

@@ -41,22 +41,6 @@ export default function ConfigSidebar() {
     setSettings({ companyColors: next });
   }
 
-  async function handleWatermarkUpload() {
-    const result = await window.electronAPI.openFile();
-    if (!result) return;
-    // Read the file as data URL via canvas
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      c.width = img.width;
-      c.height = img.height;
-      const ctx = c.getContext('2d')!;
-      ctx.drawImage(img, 0, 0);
-      setSettings({ watermarkDataURL: c.toDataURL('image/png') });
-    };
-    img.src = result.dataURL;
-  }
-
   function handleResetWatermark() {
     setSettings({ watermarkDataURL: null });
   }

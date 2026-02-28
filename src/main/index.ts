@@ -67,8 +67,9 @@ ipcMain.handle('dialog:save-files', async (_event, files: { name: string; dataUR
   if (result.canceled || result.filePaths.length === 0) return null;
   const dir = result.filePaths[0];
   for (const file of files) {
-    const base64 = file.dataURL.replace(/^data:image\/\w+;base64,/, '');
-    fs.writeFileSync(path.join(dir, file.name), Buffer.from(base64, 'base64'));
+    const safeName = path.basename(file.name).replace(/[<>:"/\\|?*]/g, '_') || 'image';
+    const base64 = file.dataURL.replace(/^data:image\/[\w+]+;base64,/, '');
+    fs.writeFileSync(path.join(dir, safeName), Buffer.from(base64, 'base64'));
   }
   return dir;
 });
@@ -114,7 +115,7 @@ ipcMain.handle('clipboard:read-image', () => {
 
 // IPC: Write image to clipboard
 ipcMain.handle('clipboard:write-image', (_event, dataURL: string) => {
-  const base64 = dataURL.replace(/^data:image\/\w+;base64,/, '');
+  const base64 = dataURL.replace(/^data:image\/[\w+]+;base64,/, '');
   const img = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
   clipboard.writeImage(img);
   return true;
@@ -154,7 +155,7 @@ ipcMain.handle('dialog:save-file', async (_event, dataURL: string, defaultName: 
     filters,
   });
   if (result.canceled || !result.filePath) return null;
-  const base64 = dataURL.replace(/^data:image\/\w+;base64,/, '');
+  const base64 = dataURL.replace(/^data:image\/[\w+]+;base64,/, '');
   fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
   return result.filePath;
 });

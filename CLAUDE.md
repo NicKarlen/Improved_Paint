@@ -24,7 +24,11 @@ npm run dev          # start Electron in dev mode with hot reload
 npm run build        # production build
 npm run test         # run tests
 npm run lint         # lint + typecheck
+npm run package      # build + zip for distribution → release/Improved-Paint.zip
 ```
+
+> **Distributing:** `npm run package` produces `release/Improved-Paint.zip`. Friends extract it and run `Improved Paint.exe` — no install needed.
+> For a proper single portable `.exe` instead of a zip, enable Windows Developer Mode first, then use `npm run dist`.
 
 ## Architecture
 
