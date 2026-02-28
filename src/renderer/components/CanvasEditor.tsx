@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useAppState } from '../store/AppContext';
-import { Shape, TextAnnotation } from '../../shared/types';
+import { Shape, TextAnnotation, StepIndicator } from '../../shared/types';
 import {
   generateId, nextTabName, formatStepLabel, renderStepIndicator,
   renderShape, renderBlurShape, distanceToShape, drawScaledImage,
@@ -66,6 +66,13 @@ export default function CanvasEditor() {
   const [textInput, setTextInput] = useState<{ x: number; y: number; clientX: number; clientY: number; editingId?: string; value: string } | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const editingIdRef = useRef<string | null>(null);
+
+  // Annotation clipboard (Ctrl+C / Ctrl+V / Ctrl+D)
+  type AnnotClip =
+    | { kind: 'step'; data: StepIndicator }
+    | { kind: 'shape'; data: Shape }
+    | { kind: 'text'; data: TextAnnotation };
+  const annotClipboardRef = useRef<AnnotClip | null>(null);
 
   // Select/move/resize state
   const selectedId = state.selectedId;
@@ -1183,6 +1190,54 @@ export default function CanvasEditor() {
         return;
       }
 
+      // Copy annotation: Ctrl+C (when annotation is selected)
+      if (e.ctrlKey && !e.shiftKey && e.key === 'c' && selectedId && activeTab && state.tool === 'select') {
+        const step = indicators.find(i => i.id === selectedId);
+        const shape = shapes.find(s => s.id === selectedId);
+        const text = textAnnotations.find(t => t.id === selectedId);
+        if (step) { annotClipboardRef.current = { kind: 'step', data: step }; e.preventDefault(); return; }
+        if (shape) { annotClipboardRef.current = { kind: 'shape', data: shape }; e.preventDefault(); return; }
+        if (text) { annotClipboardRef.current = { kind: 'text', data: text }; e.preventDefault(); return; }
+      }
+
+      // Duplicate annotation: Ctrl+D
+      if (e.ctrlKey && e.key === 'd' && selectedId && activeTab && state.tool === 'select') {
+        e.preventDefault();
+        const offset = 20;
+        const newId = generateId();
+        const step = indicators.find(i => i.id === selectedId);
+        const shape = shapes.find(s => s.id === selectedId);
+        const text = textAnnotations.find(t => t.id === selectedId);
+        if (step) {
+          dispatch({ type: 'ADD_STEP_INDICATOR', tabId: activeTab.id, indicator: { ...step, id: newId, x: step.x + offset, y: step.y + offset } });
+          dispatch({ type: 'SET_SELECTION', id: newId, kind: 'step' });
+        } else if (shape) {
+          dispatch({ type: 'ADD_SHAPE', tabId: activeTab.id, shape: { ...shape, id: newId, x1: shape.x1 + offset, y1: shape.y1 + offset, x2: shape.x2 + offset, y2: shape.y2 + offset } });
+          dispatch({ type: 'SET_SELECTION', id: newId, kind: 'shape' });
+        } else if (text) {
+          dispatch({ type: 'ADD_TEXT_ANNOTATION', tabId: activeTab.id, annotation: { ...text, id: newId, x: text.x + offset, y: text.y + offset } });
+          dispatch({ type: 'SET_SELECTION', id: newId, kind: 'text' });
+        }
+        return;
+      }
+
+      // Tool hotkeys: V=select, S=step, T=text, R=rect, A=arrow
+      // Guard: skip if focus is on any form field (sidebar inputs, etc.)
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+        const el = document.activeElement;
+        const onFormField = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+        if (!onFormField) {
+          const k = e.key.toLowerCase();
+          if (k === 'v') { e.preventDefault(); dispatch({ type: 'SET_TOOL', tool: 'select' }); return; }
+          if (activeTab) {
+            if (k === 's') { e.preventDefault(); dispatch({ type: 'SET_TOOL', tool: 'step' }); return; }
+            if (k === 't') { e.preventDefault(); dispatch({ type: 'SET_TOOL', tool: 'text' }); return; }
+            if (k === 'r') { e.preventDefault(); dispatch({ type: 'SET_TOOL', tool: 'rect' }); return; }
+            if (k === 'a') { e.preventDefault(); dispatch({ type: 'SET_TOOL', tool: 'arrow' }); return; }
+          }
+        }
+      }
+
       // Undo: Ctrl+Z
       if (e.ctrlKey && !e.shiftKey && e.key === 'z' && activeTab) {
         e.preventDefault();
@@ -1209,6 +1264,24 @@ export default function CanvasEditor() {
       }
 
       if (e.ctrlKey && e.key === 'v') {
+        // In select mode with annotation clipboard → paste annotation copy
+        if (state.tool === 'select' && annotClipboardRef.current && activeTab) {
+          e.preventDefault();
+          const clip = annotClipboardRef.current;
+          const offset = 20;
+          const newId = generateId();
+          if (clip.kind === 'step') {
+            dispatch({ type: 'ADD_STEP_INDICATOR', tabId: activeTab.id, indicator: { ...clip.data, id: newId, x: clip.data.x + offset, y: clip.data.y + offset } });
+            dispatch({ type: 'SET_SELECTION', id: newId, kind: 'step' });
+          } else if (clip.kind === 'shape') {
+            dispatch({ type: 'ADD_SHAPE', tabId: activeTab.id, shape: { ...clip.data, id: newId, x1: clip.data.x1 + offset, y1: clip.data.y1 + offset, x2: clip.data.x2 + offset, y2: clip.data.y2 + offset } });
+            dispatch({ type: 'SET_SELECTION', id: newId, kind: 'shape' });
+          } else if (clip.kind === 'text') {
+            dispatch({ type: 'ADD_TEXT_ANNOTATION', tabId: activeTab.id, annotation: { ...clip.data, id: newId, x: clip.data.x + offset, y: clip.data.y + offset } });
+            dispatch({ type: 'SET_SELECTION', id: newId, kind: 'text' });
+          }
+          return;
+        }
         const dataURL = await window.electronAPI.readClipboardImage();
         if (!dataURL) return;
         if (activeTab && activeTab.imageDataURL) {

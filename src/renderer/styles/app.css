@@ -88,6 +88,25 @@
   min-width: 0;
 }
 
+.tab-nudge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: #f59e0b;
+  opacity: 0.6;
+  cursor: pointer;
+  animation: nudge-pulse 2.4s ease-in-out infinite;
+}
+
+.tab-nudge:hover {
+  opacity: 1;
+}
+
+@keyframes nudge-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.75; }
+}
+
 .tab-name-input {
   flex: 1;
   font-size: 12px;
@@ -757,3 +776,50 @@
 .intro-actions { display: flex; gap: 8px; justify-content: center; width: 100%; }
 .intro-nav-btn { min-width: 72px; }
 .intro-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* ── Bulk Rename Dialog ── */
+.bulk-rename-dialog {
+  width: 340px;
+}
+
+.bulk-rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 14px;
+  padding: 7px 10px;
+  background: var(--bg-deep);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+  font-family: inherit;
+  margin-bottom: 10px;
+}
+
+.bulk-rename-input:focus {
+  border-color: var(--accent);
+}
+
+.bulk-rename-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.bulk-rename-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bulk-rename-chip-more {
+  opacity: 0.6;
+}

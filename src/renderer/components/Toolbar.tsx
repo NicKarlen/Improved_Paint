@@ -97,6 +97,14 @@ export default function Toolbar() {
 
   async function handleExportAll() {
     if (exportableTabs.length === 0) return;
+    const genericTabs = exportableTabs.filter(t => /^(Canvas|Screenshot)\s*\d*$/i.test(t.name));
+    if (genericTabs.length > 0) {
+      const names = genericTabs.map(t => `"${t.name}"`).join(', ');
+      const ok = window.confirm(
+        `${genericTabs.length} tab${genericTabs.length > 1 ? 's have' : ' has'} a generic name (${names}).\nFiles will be exported with these names. Continue?`
+      );
+      if (!ok) return;
+    }
     setExporting(true);
     try {
       const { stepSize, watermarkDataURL: rawWM2, watermarkSize, watermarkEnabled: we, exportFormat, exportQuality } = state.settings;
@@ -186,7 +194,7 @@ export default function Toolbar() {
             className={state.tool === 'step' ? 'tool-active' : ''}
             onClick={() => dispatch({ type: 'SET_TOOL', tool: 'step' })}
             disabled={!hasActiveTab}
-            title="Step Indicator"
+            title="Step Indicator (S)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="7" cy="7" r="6" fill="currentColor" opacity="0.2" />
@@ -199,7 +207,7 @@ export default function Toolbar() {
             className={state.tool === 'text' ? 'tool-active' : ''}
             onClick={() => dispatch({ type: 'SET_TOOL', tool: 'text' })}
             disabled={!hasActiveTab}
-            title="Text Annotation"
+            title="Text Annotation (T)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M3 3h8" />
@@ -212,7 +220,7 @@ export default function Toolbar() {
             className={state.tool === 'rect' ? 'tool-active' : ''}
             onClick={() => dispatch({ type: 'SET_TOOL', tool: 'rect' })}
             disabled={!hasActiveTab}
-            title="Rectangle"
+            title="Rectangle (R)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="1" y="2" width="12" height="10" rx="1.5" />
@@ -223,7 +231,7 @@ export default function Toolbar() {
             className={state.tool === 'arrow' ? 'tool-active' : ''}
             onClick={() => dispatch({ type: 'SET_TOOL', tool: 'arrow' })}
             disabled={!hasActiveTab}
-            title="Arrow"
+            title="Arrow (A)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" stroke="currentColor" strokeWidth="0.5">
               <line x1="1" y1="13" x2="10" y2="4" strokeWidth="1.5" fill="none" />

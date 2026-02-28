@@ -16,6 +16,8 @@ export default function Sidebar() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [opening, setOpening] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showBulkRename, setShowBulkRename] = useState(false);
+  const [baseName, setBaseName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -44,6 +46,10 @@ export default function Sidebar() {
       document.removeEventListener('keydown', handleKey);
     };
   }, [contextMenu]);
+
+  function isGenericName(name: string) {
+    return /^(Canvas|Screenshot)\s*\d*$/i.test(name);
+  }
 
   function startRename(id: string, currentName: string) {
     setEditingId(id);
@@ -88,6 +94,35 @@ export default function Sidebar() {
   }
 
   function addBlankTab() {
+    // Auto-sequence: if all existing tabs share one meaningful base name, continue it.
+    // e.g. "Setup" → adds "Setup Nr2" and renames the existing one to "Setup Nr1"
+    // e.g. "Setup Nr1", "Setup Nr2" → adds "Setup Nr3"
+    if (state.tabs.length > 0) {
+      const bases = state.tabs.map(t => t.name.replace(/ Nr\d+$/, ''));
+      const base = bases[0];
+      const isGeneric = /^(Screenshot|Canvas)\s*\d*$/i.test(base);
+      const allSameBase = bases.every(b => b === base);
+
+      if (!isGeneric && allSameBase) {
+        // Rename any tab that is still without a NrN suffix
+        state.tabs.forEach((tab, i) => {
+          if (!/ Nr\d+$/.test(tab.name)) {
+            dispatch({ type: 'RENAME_TAB', id: tab.id, name: `${base} Nr${i + 1}` });
+          }
+        });
+        // New tab gets the next number after the current highest (fallback: tab count)
+        const maxNr = state.tabs.reduce((max, t) => {
+          const m = t.name.match(/ Nr(\d+)$/);
+          return m ? Math.max(max, parseInt(m[1])) : max;
+        }, state.tabs.length);
+        dispatch({
+          type: 'ADD_TAB',
+          tab: { id: generateId(), name: `${base} Nr${maxNr + 1}`, imageDataURL: '', thumbnail: '' },
+        });
+        return;
+      }
+    }
+
     dispatch({
       type: 'ADD_TAB',
       tab: { id: generateId(), name: nextTabName(state.tabs, 'Canvas'), imageDataURL: '', thumbnail: '' },
@@ -109,6 +144,23 @@ export default function Sidebar() {
       newTab: { id: generateId(), name: tab.name + ' copy', imageDataURL: tab.imageDataURL, thumbnail: tab.thumbnail },
     });
     setContextMenu(null);
+  }
+
+  function openBulkRename() {
+    // Pre-fill with the first tab's name, stripping any existing " NrN" suffix
+    const firstName = state.tabs[0]?.name ?? '';
+    setBaseName(firstName.replace(/ Nr\d+$/, ''));
+    setShowBulkRename(true);
+  }
+
+  function commitBulkRename() {
+    const base = baseName.trim();
+    if (!base) return;
+    state.tabs.forEach((tab, i) => {
+      const name = state.tabs.length === 1 ? base : `${base} Nr${i + 1}`;
+      dispatch({ type: 'RENAME_TAB', id: tab.id, name });
+    });
+    setShowBulkRename(false);
   }
 
   async function handleExportSingle(tabId: string) {
@@ -153,6 +205,21 @@ export default function Sidebar() {
           </svg>
           {' '}{saving ? 'Saving…' : 'Save'}
         </button>
+        <button
+          onClick={openBulkRename}
+          disabled={state.tabs.length === 0}
+          title="Rename all tabs at once"
+        >
+          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: -1 }}>
+            <path d="M1 3.5h7" />
+            <path d="M1 7h5" />
+            <path d="M1 10.5h3.5" />
+            <path d="M9.5 8l2-2 1.5 1.5-2 2z" />
+            <path d="M11.5 6l1 1" />
+            <path d="M9.5 10l0.5 0.5" />
+          </svg>
+          {' '}Rename
+        </button>
       </div>
       <div className="tab-list">
         {state.tabs.length === 0 && (
@@ -184,16 +251,26 @@ export default function Sidebar() {
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
-                <div
-                  className="tab-name"
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    startRename(tab.id, tab.name);
-                  }}
-                  title="Double-click to rename"
-                >
-                  {tab.name}
-                </div>
+                <>
+                  <div
+                    className="tab-name"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      startRename(tab.id, tab.name);
+                    }}
+                    title="Double-click to rename"
+                  >
+                    {tab.name}
+                  </div>
+                  {isGenericName(tab.name) && (
+                    <span className="tab-nudge" title="Double-click name to rename" onClick={(e) => { e.stopPropagation(); startRename(tab.id, tab.name); }}>
+                      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M8.5 1.5L10.5 3.5 5 9 2 10 3 7Z" />
+                        <line x1="7" y1="3" x2="9" y2="5" />
+                      </svg>
+                    </span>
+                  )}
+                </>
               )}
               <button
                 className="tab-close"
@@ -214,6 +291,44 @@ export default function Sidebar() {
           </svg>
         </button>
       </div>
+
+      {showBulkRename && (
+        <div className="dialog-overlay" onClick={() => setShowBulkRename(false)}>
+          <div className="dialog bulk-rename-dialog" onClick={e => e.stopPropagation()}>
+            <h3>Rename Tabs</h3>
+            <input
+              className="bulk-rename-input"
+              placeholder="Base name…"
+              value={baseName}
+              onChange={e => setBaseName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitBulkRename(); }
+                if (e.key === 'Escape') setShowBulkRename(false);
+              }}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+            />
+            {baseName.trim() && (
+              <div className="bulk-rename-preview">
+                {state.tabs.slice(0, 4).map((_, i) => (
+                  <span key={i} className="bulk-rename-chip">
+                    {state.tabs.length === 1 ? baseName.trim() : `${baseName.trim()} Nr${i + 1}`}
+                  </span>
+                ))}
+                {state.tabs.length > 4 && (
+                  <span className="bulk-rename-chip bulk-rename-chip-more">+{state.tabs.length - 4} more</span>
+                )}
+              </div>
+            )}
+            <div className="dialog-actions">
+              <button onClick={() => setShowBulkRename(false)}>Cancel</button>
+              <button className="primary" onClick={commitBulkRename} disabled={!baseName.trim()}>
+                Rename {state.tabs.length === 1 ? 'Tab' : `${state.tabs.length} Tabs`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {contextMenu && (
         <div
