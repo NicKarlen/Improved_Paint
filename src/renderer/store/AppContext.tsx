@@ -49,9 +49,10 @@ type Action =
   | { type: 'ADD_SHAPE'; tabId: string; shape: Shape }
   | { type: 'ADD_SHAPES'; tabId: string; shapes: Shape[] }
   | { type: 'ADD_TEXT_ANNOTATION'; tabId: string; annotation: TextAnnotation }
-  | { type: 'UPDATE_TEXT_ANNOTATION'; tabId: string; id: string; changes: Partial<TextAnnotation> }
-  | { type: 'UPDATE_SHAPE'; tabId: string; id: string; changes: Partial<Shape> }
-  | { type: 'UPDATE_STEP_INDICATOR'; tabId: string; id: string; changes: Partial<StepIndicator> }
+  | { type: 'UPDATE_TEXT_ANNOTATION'; tabId: string; id: string; changes: Partial<TextAnnotation>; skipUndo?: true }
+  | { type: 'UPDATE_SHAPE'; tabId: string; id: string; changes: Partial<Shape>; skipUndo?: true }
+  | { type: 'UPDATE_STEP_INDICATOR'; tabId: string; id: string; changes: Partial<StepIndicator>; skipUndo?: true }
+  | { type: 'PUSH_UNDO'; tabId: string }
   | { type: 'REMOVE_ANNOTATION'; tabId: string; annotationId: string }
   | { type: 'UNDO'; tabId: string }
   | { type: 'REDO'; tabId: string }
@@ -61,7 +62,7 @@ type Action =
   | { type: 'DUPLICATE_TAB'; sourceTabId: string; newTab: Tab }
   | { type: 'SET_SELECTION'; id: string | null; kind: 'step' | 'shape' | 'text' | null }
   | { type: 'LOAD_PROJECT'; project: ProjectFile }
-  | { type: 'BATCH_MOVE'; tabId: string; steps: { id: string; x: number; y: number }[]; shapes: { id: string; x1: number; y1: number; x2: number; y2: number }[]; texts: { id: string; x: number; y: number }[] }
+  | { type: 'BATCH_MOVE'; tabId: string; steps: { id: string; x: number; y: number }[]; shapes: { id: string; x1: number; y1: number; x2: number; y2: number }[]; texts: { id: string; x: number; y: number }[]; skipUndo?: true }
   | { type: 'REORDER_ANNOTATION'; tabId: string; annotationId: string; direction: 'front' | 'back' };
 
 const MAX_HISTORY = 50;
@@ -221,26 +222,28 @@ function reducer(state: State, action: Action): State {
       };
     }
     case 'UPDATE_TEXT_ANNOTATION': {
-      const history = pushUndo(state, action.tabId);
+      const history = action.skipUndo ? state.history : pushUndo(state, action.tabId);
       const texts = (state.textAnnotations[action.tabId] || []).map(t =>
         t.id === action.id ? { ...t, ...action.changes } : t
       );
       return { ...state, history, textAnnotations: { ...state.textAnnotations, [action.tabId]: texts } };
     }
     case 'UPDATE_SHAPE': {
-      const history = pushUndo(state, action.tabId);
+      const history = action.skipUndo ? state.history : pushUndo(state, action.tabId);
       const shapes = (state.shapes[action.tabId] || []).map(s =>
         s.id === action.id ? { ...s, ...action.changes } : s
       );
       return { ...state, history, shapes: { ...state.shapes, [action.tabId]: shapes } };
     }
     case 'UPDATE_STEP_INDICATOR': {
-      const history = pushUndo(state, action.tabId);
+      const history = action.skipUndo ? state.history : pushUndo(state, action.tabId);
       const steps = (state.stepIndicators[action.tabId] || []).map(s =>
         s.id === action.id ? { ...s, ...action.changes } : s
       );
       return { ...state, history, stepIndicators: { ...state.stepIndicators, [action.tabId]: steps } };
     }
+    case 'PUSH_UNDO':
+      return { ...state, history: pushUndo(state, action.tabId) };
     case 'REMOVE_ANNOTATION': {
       const history = pushUndo(state, action.tabId);
       const allSteps = state.stepIndicators[action.tabId] || [];
@@ -433,7 +436,7 @@ function reducer(state: State, action: Action): State {
     }
 
     case 'BATCH_MOVE': {
-      const history = pushUndo(state, action.tabId);
+      const history = action.skipUndo ? state.history : pushUndo(state, action.tabId);
       const stepsMap = new Map(action.steps.map(s => [s.id, s]));
       const shapesMap = new Map(action.shapes.map(s => [s.id, s]));
       const textsMap = new Map(action.texts.map(t => [t.id, t]));

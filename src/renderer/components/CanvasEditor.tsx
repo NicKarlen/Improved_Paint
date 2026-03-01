@@ -94,8 +94,10 @@ export default function CanvasEditor() {
   }
   const multiDragRef = useRef<{ startX: number; startY: number; items: MultiDragItem[] } | null>(null);
 
-  // Context menu for z-ordering
-  const [contextMenu, setContextMenu] = useState<{ screenX: number; screenY: number; annotId: string } | null>(null);
+  const [hoverCursor, setHoverCursor] = useState<string>('default');
+
+  // Context menu for z-ordering / multi-align
+  const [contextMenu, setContextMenu] = useState<{ screenX: number; screenY: number; annotId?: string; multiAlign?: boolean } | null>(null);
 
   const activeTab = state.tabs.find(t => t.id === state.activeTabId);
   const indicators = activeTab ? (state.stepIndicators[activeTab.id] || []) : [];
@@ -931,8 +933,8 @@ export default function CanvasEditor() {
   }
 
   function handleContextAction(action: 'front' | 'back' | 'delete') {
-    if (!contextMenu || !activeTab) return;
-    const { annotId } = contextMenu;
+    if (!contextMenu || !contextMenu.annotId || !activeTab) return;
+    const { annotId } = contextMenu as { annotId: string };
     if (action === 'delete') {
       if (selectedId === annotId) dispatch({ type: 'SET_SELECTION', id: null, kind: null });
       setMultiIds(prev => prev.filter(id => id !== annotId));
@@ -940,6 +942,142 @@ export default function CanvasEditor() {
     } else {
       dispatch({ type: 'REORDER_ANNOTATION', tabId: activeTab.id, annotationId: annotId, direction: action });
     }
+    setContextMenu(null);
+  }
+
+  function handleAlignAction(type: 'left' | 'right' | 'top' | 'bottom' | 'centerX' | 'centerY') {
+    if (!activeTab || multiIds.length < 2) return;
+    const tmpCanvas = document.createElement('canvas');
+    const ctx = tmpCanvas.getContext('2d')!;
+
+    interface AnnotBounds { id: string; kind: 'step' | 'shape' | 'text'; left: number; right: number; top: number; bottom: number; }
+    const bounds: AnnotBounds[] = [];
+
+    for (const id of multiIds) {
+      const ind = indicators.find(i => i.id === id);
+      if (ind) {
+        const r = stepSize / 2;
+        bounds.push({ id, kind: 'step', left: ind.x - r, right: ind.x + r, top: ind.y - r, bottom: ind.y + r });
+        continue;
+      }
+      const shape = shapes.find(s => s.id === id);
+      if (shape) {
+        bounds.push({ id, kind: 'shape', left: Math.min(shape.x1, shape.x2), right: Math.max(shape.x1, shape.x2), top: Math.min(shape.y1, shape.y2), bottom: Math.max(shape.y1, shape.y2) });
+        continue;
+      }
+      const ta = textAnnotations.find(t => t.id === id);
+      if (ta) {
+        const dims = measureTextAnnotation(ctx, ta.text, ta.fontSize, 1);
+        bounds.push({ id, kind: 'text', left: ta.x, right: ta.x + dims.width, top: ta.y, bottom: ta.y + dims.height });
+      }
+    }
+
+    if (bounds.length < 2) return;
+
+    const minLeft = Math.min(...bounds.map(b => b.left));
+    const maxRight = Math.max(...bounds.map(b => b.right));
+    const minTop = Math.min(...bounds.map(b => b.top));
+    const maxBottom = Math.max(...bounds.map(b => b.bottom));
+    const avgCX = bounds.reduce((s, b) => s + (b.left + b.right) / 2, 0) / bounds.length;
+    const avgCY = bounds.reduce((s, b) => s + (b.top + b.bottom) / 2, 0) / bounds.length;
+
+    const stepMoves: { id: string; x: number; y: number }[] = [];
+    const shapeMoves: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
+    const textMoves: { id: string; x: number; y: number }[] = [];
+
+    for (const b of bounds) {
+      let dx = 0, dy = 0;
+      const cx = (b.left + b.right) / 2;
+      const cy = (b.top + b.bottom) / 2;
+      if (type === 'left') dx = minLeft - b.left;
+      else if (type === 'right') dx = maxRight - b.right;
+      else if (type === 'top') dy = minTop - b.top;
+      else if (type === 'bottom') dy = maxBottom - b.bottom;
+      else if (type === 'centerX') dx = avgCX - cx;
+      else if (type === 'centerY') dy = avgCY - cy;
+
+      const ind = indicators.find(i => i.id === b.id);
+      if (ind) { stepMoves.push({ id: b.id, x: ind.x + dx, y: ind.y + dy }); continue; }
+      const shape = shapes.find(s => s.id === b.id);
+      if (shape) { shapeMoves.push({ id: b.id, x1: shape.x1 + dx, y1: shape.y1 + dy, x2: shape.x2 + dx, y2: shape.y2 + dy }); continue; }
+      const ta = textAnnotations.find(t => t.id === b.id);
+      if (ta) textMoves.push({ id: b.id, x: ta.x + dx, y: ta.y + dy });
+    }
+
+    dispatch({ type: 'BATCH_MOVE', tabId: activeTab.id, steps: stepMoves, shapes: shapeMoves, texts: textMoves });
+    setContextMenu(null);
+  }
+
+  function handleDistributeAction(type: 'horizontal' | 'vertical') {
+    if (!activeTab || multiIds.length < 3) return;
+    const tmpCanvas = document.createElement('canvas');
+    const ctx = tmpCanvas.getContext('2d')!;
+
+    interface AnnotBounds { id: string; left: number; right: number; top: number; bottom: number; }
+    const bounds: AnnotBounds[] = [];
+
+    for (const id of multiIds) {
+      const ind = indicators.find(i => i.id === id);
+      if (ind) {
+        const r = stepSize / 2;
+        bounds.push({ id, left: ind.x - r, right: ind.x + r, top: ind.y - r, bottom: ind.y + r });
+        continue;
+      }
+      const shape = shapes.find(s => s.id === id);
+      if (shape) {
+        bounds.push({ id, left: Math.min(shape.x1, shape.x2), right: Math.max(shape.x1, shape.x2), top: Math.min(shape.y1, shape.y2), bottom: Math.max(shape.y1, shape.y2) });
+        continue;
+      }
+      const ta = textAnnotations.find(t => t.id === id);
+      if (ta) {
+        const dims = measureTextAnnotation(ctx, ta.text, ta.fontSize, 1);
+        bounds.push({ id, left: ta.x, right: ta.x + dims.width, top: ta.y, bottom: ta.y + dims.height });
+      }
+    }
+
+    if (bounds.length < 3) return;
+
+    const stepMoves: { id: string; x: number; y: number }[] = [];
+    const shapeMoves: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
+    const textMoves: { id: string; x: number; y: number }[] = [];
+
+    if (type === 'horizontal') {
+      bounds.sort((a, b) => a.left - b.left);
+      const totalW = bounds.reduce((s, b) => s + (b.right - b.left), 0);
+      const span = bounds[bounds.length - 1].right - bounds[0].left;
+      const gap = (span - totalW) / (bounds.length - 1);
+      let cursor = bounds[0].right + gap;
+      for (let i = 1; i < bounds.length - 1; i++) {
+        const b = bounds[i];
+        const dx = cursor - b.left;
+        const ind = indicators.find(ii => ii.id === b.id);
+        if (ind) { stepMoves.push({ id: b.id, x: ind.x + dx, y: ind.y }); cursor += (b.right - b.left) + gap; continue; }
+        const shape = shapes.find(s => s.id === b.id);
+        if (shape) { shapeMoves.push({ id: b.id, x1: shape.x1 + dx, y1: shape.y1, x2: shape.x2 + dx, y2: shape.y2 }); cursor += (b.right - b.left) + gap; continue; }
+        const ta = textAnnotations.find(t => t.id === b.id);
+        if (ta) { textMoves.push({ id: b.id, x: ta.x + dx, y: ta.y }); }
+        cursor += (b.right - b.left) + gap;
+      }
+    } else {
+      bounds.sort((a, b) => a.top - b.top);
+      const totalH = bounds.reduce((s, b) => s + (b.bottom - b.top), 0);
+      const span = bounds[bounds.length - 1].bottom - bounds[0].top;
+      const gap = (span - totalH) / (bounds.length - 1);
+      let cursor = bounds[0].bottom + gap;
+      for (let i = 1; i < bounds.length - 1; i++) {
+        const b = bounds[i];
+        const dy = cursor - b.top;
+        const ind = indicators.find(ii => ii.id === b.id);
+        if (ind) { stepMoves.push({ id: b.id, x: ind.x, y: ind.y + dy }); cursor += (b.bottom - b.top) + gap; continue; }
+        const shape = shapes.find(s => s.id === b.id);
+        if (shape) { shapeMoves.push({ id: b.id, x1: shape.x1, y1: shape.y1 + dy, x2: shape.x2, y2: shape.y2 + dy }); cursor += (b.bottom - b.top) + gap; continue; }
+        const ta = textAnnotations.find(t => t.id === b.id);
+        if (ta) { textMoves.push({ id: b.id, x: ta.x, y: ta.y + dy }); }
+        cursor += (b.bottom - b.top) + gap;
+      }
+    }
+
+    dispatch({ type: 'BATCH_MOVE', tabId: activeTab.id, steps: stepMoves, shapes: shapeMoves, texts: textMoves });
     setContextMenu(null);
   }
 
@@ -1062,6 +1200,7 @@ export default function CanvasEditor() {
       if (hit) {
         // Clicking a multi-selected item (> 1 selected) → start multi-drag
         if (multiIds.includes(hit.id) && multiIds.length > 1) {
+          dispatch({ type: 'PUSH_UNDO', tabId: activeTab.id });
           isDraggingAnnotationRef.current = true;
           const items: MultiDragItem[] = multiIds.map(id => {
             const ind = indicators.find(i => i.id === id);
@@ -1080,6 +1219,7 @@ export default function CanvasEditor() {
         // Single-select this annotation
         setMultiIds([hit.id]);
         dispatch({ type: 'SET_SELECTION', id: hit.id, kind: hit.kind });
+        dispatch({ type: 'PUSH_UNDO', tabId: activeTab.id });
         isDraggingAnnotationRef.current = true;
 
         if (hit.kind === 'step') {
@@ -1185,7 +1325,7 @@ export default function CanvasEditor() {
       const stepMoves = md.items.filter(i => i.kind === 'step').map(i => ({ id: i.id, x: i.ox + dx, y: i.oy + dy }));
       const shapeMoves = md.items.filter(i => i.kind === 'shape').map(i => ({ id: i.id, x1: i.ox1! + dx, y1: i.oy1! + dy, x2: i.ox2! + dx, y2: i.oy2! + dy }));
       const textMoves = md.items.filter(i => i.kind === 'text').map(i => ({ id: i.id, x: i.ox + dx, y: i.oy + dy }));
-      dispatch({ type: 'BATCH_MOVE', tabId: activeTab.id, steps: stepMoves, shapes: shapeMoves, texts: textMoves });
+      dispatch({ type: 'BATCH_MOVE', tabId: activeTab.id, steps: stepMoves, shapes: shapeMoves, texts: textMoves, skipUndo: true });
       return;
     }
 
@@ -1200,6 +1340,7 @@ export default function CanvasEditor() {
           tabId: activeTab.id,
           id: target.id,
           changes: { x: x - target.offsetX, y: y - target.offsetY },
+          skipUndo: true,
         });
       } else if (target.kind === 'text') {
         dispatch({
@@ -1207,6 +1348,7 @@ export default function CanvasEditor() {
           tabId: activeTab.id,
           id: target.id,
           changes: { x: x - target.offsetX, y: y - target.offsetY },
+          skipUndo: true,
         });
       } else if (target.kind === 'shape') {
         const shape = shapes.find(s => s.id === target.id);
@@ -1227,6 +1369,7 @@ export default function CanvasEditor() {
               x2: shape.x2 + dx,
               y2: shape.y2 + dy,
             },
+            skipUndo: true,
           });
         } else {
           // Resize via corner handle
@@ -1247,7 +1390,7 @@ export default function CanvasEditor() {
           else if (target.handle === 'x2y2') { changes.x2 = nx; changes.y2 = ny; }
           else if (target.handle === 'x1y2') { changes.x1 = nx; changes.y2 = ny; }
           else if (target.handle === 'x2y1') { changes.x2 = nx; changes.y1 = ny; }
-          dispatch({ type: 'UPDATE_SHAPE', tabId: activeTab.id, id: target.id, changes });
+          dispatch({ type: 'UPDATE_SHAPE', tabId: activeTab.id, id: target.id, changes, skipUndo: true });
         }
       }
       return;
@@ -1266,6 +1409,24 @@ export default function CanvasEditor() {
       }
       setDrawingShape(prev => prev ? { ...prev, x2: x, y2: y } : null);
       return;
+    }
+
+    // Update hover cursor for select tool
+    if (state.tool === 'select') {
+      const { x, y } = toImageCoords(e);
+      const selShape = shapes.find(s => s.id === selectedId);
+      let cur = 'default';
+      if (selShape) {
+        const handle = getResizeHandle(x, y, selShape);
+        if (handle !== 'body') {
+          cur = (handle === 'x1y1' || handle === 'x2y2') ? 'nwse-resize' : 'nesw-resize';
+        } else {
+          cur = findAnnotationAt(x, y) ? 'move' : 'default';
+        }
+      } else {
+        cur = findAnnotationAt(x, y) ? 'move' : 'default';
+      }
+      setHoverCursor(cur);
     }
   }
 
@@ -1312,6 +1473,7 @@ export default function CanvasEditor() {
   }
 
   function handleMouseLeave() {
+    setHoverCursor('default');
     if (isRubberBandingRef.current) return; // let rubber-band finish even if mouse leaves canvas
     overlayDraggingRef.current = false;
     if (isDraggingAnnotationRef.current) {
@@ -1383,10 +1545,16 @@ export default function CanvasEditor() {
     }
   }
 
-  // Right-click: show context menu for nearest annotation
+  // Right-click: show context menu for nearest annotation (or multi-align when 2+ selected)
   function handleContextMenu(e: React.MouseEvent<HTMLCanvasElement>) {
     e.preventDefault();
     if (!activeTab) return;
+
+    if (multiIds.length > 1) {
+      setContextMenu({ screenX: e.clientX, screenY: e.clientY, multiAlign: true });
+      return;
+    }
+
     const { x, y } = toImageCoords(e);
 
     let closest: { id: string; dist: number } | null = null;
@@ -1577,7 +1745,7 @@ export default function CanvasEditor() {
   const cursorStyle = overlay
     ? (overlayCropMode ? 'crosshair' : 'move')
     : state.tool === 'select'
-    ? (selectedId ? 'move' : 'default')
+    ? hoverCursor
     : (state.tool === 'step' || state.tool === 'text') ? 'crosshair'
     : (state.tool === 'rect' || state.tool === 'arrow' || state.tool === 'blur' || state.tool === 'crop') ? 'crosshair'
     : 'default';
@@ -1693,10 +1861,57 @@ export default function CanvasEditor() {
           style={{ position: 'fixed', left: contextMenu.screenX, top: contextMenu.screenY }}
           onMouseDown={e => e.stopPropagation()}
         >
-          <button onClick={() => handleContextAction('front')}>Bring to front</button>
-          <button onClick={() => handleContextAction('back')}>Send to back</button>
-          <div className="context-menu-divider" />
-          <button className="danger" onClick={() => handleContextAction('delete')}>Delete</button>
+          {contextMenu.multiAlign ? (
+            <>
+              <div className="align-menu-label">Align {multiIds.length} items</div>
+              <div className="align-grid">
+                <button className="align-grid-btn" title="Align left edges" onClick={() => handleAlignAction('left')}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><line x1="3" y1="2" x2="3" y2="18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><rect x="4" y="5" width="13" height="3" rx="0.5" fill="currentColor"/><rect x="4" y="12" width="8" height="3" rx="0.5" fill="currentColor"/></svg>
+                </button>
+                <button className="align-grid-btn" title="Center on vertical axis" onClick={() => handleAlignAction('centerX')}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><line x1="10" y1="2" x2="10" y2="18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><rect x="2.5" y="5" width="15" height="3" rx="0.5" fill="currentColor"/><rect x="5" y="12" width="10" height="3" rx="0.5" fill="currentColor"/></svg>
+                </button>
+                <button className="align-grid-btn" title="Align right edges" onClick={() => handleAlignAction('right')}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><line x1="17" y1="2" x2="17" y2="18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><rect x="4" y="5" width="13" height="3" rx="0.5" fill="currentColor"/><rect x="9" y="12" width="8" height="3" rx="0.5" fill="currentColor"/></svg>
+                </button>
+                <button className="align-grid-btn" title="Align top edges" onClick={() => handleAlignAction('top')}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><line x1="2" y1="3" x2="18" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><rect x="4" y="4" width="4" height="13" rx="0.5" fill="currentColor"/><rect x="12" y="4" width="4" height="7" rx="0.5" fill="currentColor"/></svg>
+                </button>
+                <button className="align-grid-btn" title="Center on horizontal axis" onClick={() => handleAlignAction('centerY')}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><line x1="2" y1="10" x2="18" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><rect x="4" y="3" width="4" height="14" rx="0.5" fill="currentColor"/><rect x="12" y="5" width="4" height="10" rx="0.5" fill="currentColor"/></svg>
+                </button>
+                <button className="align-grid-btn" title="Align bottom edges" onClick={() => handleAlignAction('bottom')}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><line x1="2" y1="17" x2="18" y2="17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><rect x="4" y="4" width="4" height="13" rx="0.5" fill="currentColor"/><rect x="12" y="10" width="4" height="7" rx="0.5" fill="currentColor"/></svg>
+                </button>
+              </div>
+              <div className="context-menu-divider" />
+              <div className="distribute-row">
+                <button className="align-grid-btn" title="Distribute horizontally" onClick={() => handleDistributeAction('horizontal')} disabled={multiIds.length < 3}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><rect x="1" y="4" width="4" height="12" rx="0.5" fill="currentColor"/><rect x="8" y="4" width="4" height="12" rx="0.5" fill="currentColor"/><rect x="15" y="4" width="4" height="12" rx="0.5" fill="currentColor"/></svg>
+                </button>
+                <button className="align-grid-btn" title="Distribute vertically" onClick={() => handleDistributeAction('vertical')} disabled={multiIds.length < 3}>
+                  <svg viewBox="0 0 20 20" width="17" height="17"><rect x="4" y="1" width="12" height="4" rx="0.5" fill="currentColor"/><rect x="4" y="8" width="12" height="4" rx="0.5" fill="currentColor"/><rect x="4" y="15" width="12" height="4" rx="0.5" fill="currentColor"/></svg>
+                </button>
+              </div>
+              <div className="context-menu-divider" />
+              <button className="danger" onClick={() => {
+                if (!activeTab) return;
+                for (const id of multiIds) {
+                  dispatch({ type: 'REMOVE_ANNOTATION', tabId: activeTab.id, annotationId: id });
+                }
+                dispatch({ type: 'SET_SELECTION', id: null, kind: null });
+                setMultiIds([]);
+                setContextMenu(null);
+              }}>Delete {multiIds.length} items</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => handleContextAction('front')}>Bring to front</button>
+              <button onClick={() => handleContextAction('back')}>Send to back</button>
+              <div className="context-menu-divider" />
+              <button className="danger" onClick={() => handleContextAction('delete')}>Delete</button>
+            </>
+          )}
         </div>
       )}
       <div className="canvas-status">

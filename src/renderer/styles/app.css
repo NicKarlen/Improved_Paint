@@ -868,6 +868,62 @@
   margin: 3px 0;
 }
 
+/* Align grid inside multi-select context menu */
+.align-menu-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px 6px;
+  user-select: none;
+}
+
+.align-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 0 4px 4px;
+}
+
+.align-grid-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border-radius: 5px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.align-grid-btn:hover {
+  background: var(--bg-surface);
+  color: var(--accent);
+}
+
+.align-grid-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.align-grid-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.distribute-row {
+  display: flex;
+  gap: 2px;
+  padding: 0 4px 2px;
+}
+
+.distribute-row .align-grid-btn {
+  flex: 1;
+}
+
 /* ── Export toast ── */
 .export-toast {
   position: fixed;
