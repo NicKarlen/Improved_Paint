@@ -1703,7 +1703,7 @@ export default function CanvasEditor() {
 
       if (e.ctrlKey && e.key === 'v') {
         // In select mode with annotation clipboard → paste annotation copy
-        if (state.tool === 'select' && annotClipboardRef.current && activeTab) {
+        if (state.tool === 'select' && annotClipboardRef.current && activeTab && activeTab.imageDataURL) {
           e.preventDefault();
           const clip = annotClipboardRef.current;
           const offset = 20;
