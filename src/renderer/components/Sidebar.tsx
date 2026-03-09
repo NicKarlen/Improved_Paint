@@ -18,6 +18,8 @@ export default function Sidebar() {
   const [saving, setSaving] = useState(false);
   const [showBulkRename, setShowBulkRename] = useState(false);
   const [baseName, setBaseName] = useState('');
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const dragSrcIndex = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -163,6 +165,38 @@ export default function Sidebar() {
     setShowBulkRename(false);
   }
 
+  function handleDragStart(e: React.DragEvent, index: number) {
+    dragSrcIndex.current = index;
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const isTopHalf = e.clientY < rect.top + rect.height / 2;
+    setDropIndex(isTopHalf ? index : index + 1);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const fromIndex = dragSrcIndex.current;
+    if (fromIndex !== null && dropIndex !== null) {
+      // Adjust target: inserting after fromIndex shifts things by 1
+      const toIndex = dropIndex > fromIndex ? dropIndex - 1 : dropIndex;
+      if (toIndex !== fromIndex) {
+        dispatch({ type: 'REORDER_TABS', fromIndex, toIndex });
+      }
+    }
+    dragSrcIndex.current = null;
+    setDropIndex(null);
+  }
+
+  function handleDragEnd() {
+    dragSrcIndex.current = null;
+    setDropIndex(null);
+  }
+
   async function handleExportSingle(tabId: string) {
     const tab = state.tabs.find(t => t.id === tabId);
     if (!tab || !tab.imageDataURL) return;
@@ -228,12 +262,18 @@ export default function Sidebar() {
             Paste a screenshot or open a file.
           </div>
         )}
-        {state.tabs.map((tab) => (
+        {state.tabs.map((tab, index) => (
+          <div key={tab.id} className="tab-slot">
+            {dropIndex === index && <div className="drop-line" />}
           <div
-            key={tab.id}
             className={`tab-item ${tab.id === state.activeTabId ? 'active' : ''}`}
+            draggable
             onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', id: tab.id })}
             onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+            onDragStart={(e) => handleDragStart(e, index)}
+            onDragOver={(e) => handleDragOver(e, index)}
+            onDrop={handleDrop}
+            onDragEnd={handleDragEnd}
           >
             <img className="tab-thumb" src={tab.imageDataURL} alt="" />
             <div className="tab-info">
@@ -283,7 +323,9 @@ export default function Sidebar() {
               </button>
             </div>
           </div>
+          </div>
         ))}
+        {dropIndex === state.tabs.length && <div className="drop-line" />}
         <button className="add-canvas-btn" onClick={addBlankTab} title="New empty tab">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
             <line x1="10" y1="4" x2="10" y2="16" />
